@@ -104,12 +104,8 @@ def test_four_images_both_directions_preserve_every_occurrence(same, hook):
     req = request([image_item(raw, i) for i, raw in enumerate(raws)], hook)
     wire, _ = roundtrip(req)
     wrapper = CODEC.decode(wire)
-    if same:
-        assert len(wrapper["media"]) == 1
-        assert [ref[:2] for ref in wrapper["refs"]] == [[i, 1] for i in range(4)]
-    else:
-        assert "hook_media_wire" not in wrapper
-        assert wire == CODEC.encode_envelope(req)
+    assert len(wrapper["media"]) == (1 if same else 4)
+    assert [ref[:2] for ref in wrapper["refs"]] == [[i, 1] for i in range(4)]
     kwargs = copy.deepcopy(req.payload["args"])
     kwargs["tool_definitions"][0]["function"]["description"] = "changed, media untouched"
     _, restored = roundtrip(req.make_response({"modified_kwargs": kwargs}), request_context(req))
@@ -131,23 +127,42 @@ def test_noncanonical_literal_and_unknown_fields_are_not_recursively_transformed
     assert len(CODEC.decode(wire)["refs"]) == 2
 
 
-def test_unique_images_fastpath_never_calls_canonical_or_sha(monkeypatch):
+def test_unique_images_use_binary_each_processed_once(monkeypatch):
     import src.plugin_runtime.protocol.hook_media as module
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Unique media must not be decoded/re-encoded/SHA-hashed")
+    raws = [picture(i) for i in range(4)]
+    req = request([image_item(raw, i) for i, raw in enumerate(raws)])
+    calls, hashes = [], []
+    canonical, sha256 = module._canonical, module.hashlib.sha256
 
-    req = request([image_item(picture(i), i) for i in range(4)])
-    monkeypatch.setattr(module, "_canonical", forbidden)
-    monkeypatch.setattr(module.hashlib, "sha256", forbidden)
-    assert encode_frame(CODEC, req, True) == CODEC.encode_envelope(req)
+    def counted(text):
+        calls.append(text)
+        return canonical(text)
+
+    def counted_hash(raw):
+        hashes.append(len(raw))
+        return sha256(raw)
+
+    monkeypatch.setattr(module, "_canonical", counted)
+    monkeypatch.setattr(module.hashlib, "sha256", counted_hash)
     kwargs = copy.deepcopy(req.payload["args"])
     kwargs["tool_definitions"][0]["function"]["description"] = "after"
     response = req.make_response({"modified_kwargs": kwargs})
-    assert encode_frame(CODEC, response, True, request_context(req)) == CODEC.encode_envelope(response)
+    for envelope in (req, response):
+        calls.clear()
+        hashes.clear()
+        wire = encode_frame(CODEC, envelope, True, request_context(req))
+        assert calls == [base64.b64encode(raw).decode("ascii") for raw in raws]
+        assert hashes == [len(raw) for raw in raws]
+        assert len(CODEC.decode(wire)["media"]) == 4
+        assert len(wire) < len(CODEC.encode_envelope(envelope))
+        restored = decode_frame(
+            CODEC, wire, True, incoming_requests=envelope.is_request(), pending={req.request_id: request_context(req)}
+        )
+        assert restored.model_dump() == envelope.model_dump()
 
 
-def test_only_repeated_media_processed_once_unique_media_stays_literal(monkeypatch):
+def test_all_media_processed_once_per_unique_base64(monkeypatch):
     import src.plugin_runtime.protocol.hook_media as module
 
     repeated, unique = picture(), picture(2)
@@ -167,10 +182,11 @@ def test_only_repeated_media_processed_once_unique_media_stays_literal(monkeypat
     monkeypatch.setattr(module.hashlib, "sha256", counted_hash)
     wire = encode_frame(CODEC, req, True)
     wrapper = CODEC.decode(wire)
-    assert calls == [base64.b64encode(repeated).decode("ascii")]
-    assert hashes == [len(repeated)]
-    assert wrapper["refs"] == [[0, 1, 0], [2, 1, 0]]
-    assert wrapper["envelope"]["payload"]["args"]["items"][1] == req.payload["args"]["items"][1]
+    assert calls == [base64.b64encode(raw).decode("ascii") for raw in (repeated, unique)]
+    assert hashes == [len(repeated), len(unique)]
+    assert len(wrapper["media"]) == 2
+    assert wrapper["refs"] == [[0, 1, 0], [1, 1, 1], [2, 1, 0]]
+    assert all(part["parts"][1]["image_base64"] is None for part in wrapper["envelope"]["payload"]["args"]["items"])
     restored = decode_frame(CODEC, wire, True, incoming_requests=True)
     assert restored.model_dump() == req.model_dump()
 
@@ -180,8 +196,9 @@ def test_repeated_noncanonical_only_is_literal_and_tiny_table_falls_back():
     for value in req.payload["args"]["items"]:
         value["parts"][1]["image_base64"] = "Zh=="
     assert encode_frame(CODEC, req, True) == CODEC.encode_envelope(req)
-    req = request([image_item(b"f", i) for i in range(2)])
-    assert encode_frame(CODEC, req, True) == CODEC.encode_envelope(req)
+    for count in (1, 2):
+        req = request([image_item(b"f", i) for i in range(count)])
+        assert encode_frame(CODEC, req, True) == CODEC.encode_envelope(req)
 
 
 def test_no_media_and_legacy_fallback_have_identical_wire():
@@ -189,7 +206,7 @@ def test_no_media_and_legacy_fallback_have_identical_wire():
     assert encode_frame(CODEC, req, True) == CODEC.encode_envelope(req)
     req = request([image_item(picture())])
     assert encode_frame(CODEC, req, False) == CODEC.encode_envelope(req)
-    for env in [req.make_response({"success": True}), request([], "other.hook")]:
+    for env in [req.make_response({"success": True}), request([image_item(picture())], "other.hook")]:
         assert encode_frame(CODEC, env, True) == CODEC.encode_envelope(env)
     assert (
         HelloPayload.model_validate(

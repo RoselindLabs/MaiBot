@@ -16,7 +16,7 @@
     "src/plugin_runtime/transport/base.py": "18e26ef8129e5d0207727724f23b77e5635818e8901d49043384180bb886118d",
     "src/maisaka/context/internal_pressure.py": "cfd048a02d77cdc72da451c0e6b75d14c9e4e379444f628a523276a49f5c4adf",
     "src/maisaka/reasoning_engine.py": "1993ae003c4582d7f62a794c4076028841fae46cb1e6a00ccd429cff60662176",
-    "src/plugin_runtime/protocol/hook_media.py": "d923d3fe58c57a753189167853ba106f7ab8779c63c6188c3ee5206cac5b7e32",
+    "src/plugin_runtime/protocol/hook_media.py": "d3a9b2e90c952497f921b3d5eb8b366822e797ea2110117f8bc9ccac28176547",
     "src/plugin_runtime/protocol/envelope.py": "674819be5204fab95a833c1c472647d91d04d607ea24661954f4b8ae028a5494",
     "src/plugin_runtime/host/rpc_server.py": "daf9b5dbbb1335742fb5dcde67e9b4ae412c3d03af193d7bb29c20de68e87477",
     "src/plugin_runtime/runner/rpc_client.py": "74b8444c7d6358e3fb8cf435668576a7c27ba56cf5856ec9c76a7b6839a67026",

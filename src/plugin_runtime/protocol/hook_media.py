@@ -1,10 +1,10 @@
-"""Negotiated, per-frame duplicate Hook media transport. Public kwargs contain no refs.
+"""Negotiated, per-frame Hook media transport. Public kwargs contain no refs.
 
-Only repeated canonical Base64 at known ContextItem image paths is projected.
-Unique images and other spellings remain literal, preserving snapshot/replay
-equality without decoding/hashing unique media. There is no cross-frame cache,
-file access or lookup API. Wire AND restored legacy Envelope stay within the
-existing frame budget; all temporary maps are bounded by that same payload.
+Canonical Base64 at known ContextItem image paths is projected once per unique
+string; repeated occurrences share one blob. Other spellings remain literal,
+preserving snapshot/replay equality. There is no cross-frame cache, file access
+or lookup API. Wire AND restored legacy Envelope stay within the existing frame
+budget; all temporary maps are bounded by that same payload.
 """
 
 from dataclasses import dataclass
@@ -108,20 +108,19 @@ def encode_frame(codec: Codec, envelope: Envelope, enabled: bool,
         return ordinary
     items = _items(raw, context)
     # Group only known image slots in this already-bounded Envelope. Keys refer
-    # to existing strings; do not decode/re-encode or SHA-hash unique images.
+    # to existing strings; decode/validate/digest each distinct spelling once.
     occurrences: dict[str, list[tuple[int, int, dict[str, Any]]]] = {}
     for i, j, part in _slots(items):
         text = part.get("image_base64")
         if isinstance(text, str):
             occurrences.setdefault(text, []).append((i, j, part))
-    repeated = [(text, positions) for text, positions in occurrences.items() if len(positions) > 1]
-    if not repeated:
+    if not occurrences:
         return ordinary
     refs: list[list[int]] = []
     media: list[dict[str, Any]] = []
     by_digest: dict[str, int] = {}
-    for text, positions in repeated:
-        # Each repeated string is validated/decoded/digested only once per frame.
+    for text, positions in occurrences.items():
+        # Each unique string is validated/decoded/digested only once per frame.
         binary = _canonical(text)
         if binary is None:
             continue  # Literal stays EXACTLY as provided, not normalized/rejected.
