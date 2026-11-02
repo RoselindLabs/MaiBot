@@ -13,6 +13,7 @@
     "src/common/self_update.py": "ec0bf3fc8e37588ff2db8da27c196344b55e008a6b1314f92e232b156d65fb9d",
     "src/llm_models/gemini_failure_diagnostics.py": "c92f7b271f33480de0a4250499bf99658b52907f6467b09259aceb39118e7ec7",
     "src/llm_models/request_snapshot.py": "736643ce3e03be99ef8d8acddf5019961ba685fde1be573e3fef3768cd9a1945",
+    "src/plugin_runtime/transport/base.py": "18e26ef8129e5d0207727724f23b77e5635818e8901d49043384180bb886118d",
     "uv.lock": "d70b9e0065439b94587a812077b9efc4e1685f32fc594c1f48f7dc284b61128a"
   }
 }
