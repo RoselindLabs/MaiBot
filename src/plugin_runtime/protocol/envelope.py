@@ -171,6 +171,7 @@ class HelloPayload(BaseModel):
     """SDK 版本号"""
     session_token: str = Field(description="一次性会话令牌")
     """一次性会话令牌"""
+    transport_capabilities: List[str] = Field(default_factory=list, max_length=16)
 
 
 class HelloResponsePayload(BaseModel):
@@ -182,6 +183,7 @@ class HelloResponsePayload(BaseModel):
     """Host 版本号"""
     reason: str = Field(default="", description="拒绝原因 (若 accepted=False)")
     """拒绝原因 (若 `accepted`=`False`)"""
+    transport_capabilities: List[str] = Field(default_factory=list, max_length=16)
 
 
 # ====== 组件注册消息 ======

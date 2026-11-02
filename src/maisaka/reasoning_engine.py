@@ -85,6 +85,7 @@ from src.maisaka.memory.heuristic_injector import heuristic_memory_injector
 from src.maisaka.memory.image_injector import image_memory_injector
 from src.maisaka.monitor.tool_media import build_tool_result_images
 from src.maisaka.context.compaction import ContextSummaryMessage, build_context_summary
+from src.maisaka.context.internal_pressure import plan_internal_history_pressure
 from src.maisaka.monitor.events import (
     emit_flow_step,
     emit_planner_snapshot,
@@ -159,6 +160,7 @@ class MaisakaReasoningEngine:
         self._last_reasoning_content: str = ""
         self._active_logical_turn_id: str | None = None
         self._turn_passive_replyer: Optional[bool] = None
+        self._internal_pressure_attempted = False
 
     @property
     def passive_replyer_enabled(self) -> bool:
@@ -956,6 +958,7 @@ class MaisakaReasoningEngine:
                     self._turn_passive_replyer = global_config.experimental.passive_replyer
                     self._runtime._chat_loop_service.passive_replyer_override = self._turn_passive_replyer
                     self._active_logical_turn_id = turn_start_context.logical_turn_id or uuid.uuid4().hex
+                    self._internal_pressure_attempted = False
                     if force_continue_reason := self._runtime._consume_forced_turn_reason():
                         logger.info(f"{self._runtime.log_prefix} {force_continue_reason}")
                     round_index = 0
@@ -1290,6 +1293,8 @@ class MaisakaReasoningEngine:
     async def _end_cycle(self, cycle_detail: CycleDetail, only_long_execution: bool = True) -> CycleDetail:
         """结束并记录一轮 Maisaka 思考循环。"""
         await self._post_process_chat_history_after_cycle(cycle_detail)
+        if "planner" in cycle_detail.time_records:
+            await self._compact_private_internal_history(cycle_detail)
         cycle_detail.end_time = time.time()
 
         timer_strings = [
@@ -1299,6 +1304,97 @@ class MaisakaReasoningEngine:
         ]
         self._runtime._log_cycle_completed(cycle_detail, timer_strings)
         return cycle_detail
+
+    async def _compact_private_internal_history(self, cycle_detail: CycleDetail) -> None:
+        """Private-only internal pressure, successful-summary commit or no change.
+
+        Uses the existing history owner and rolling-summary builder. It never
+        learns from removed internal Items or applies the normal chat-trim
+        failure policy (which discards old real chat even if summary fails).
+        """
+        task = asyncio.current_task()
+        # A tool await may already have received cancellation before run_loop's
+        # finally enters _end_cycle. Subsequent awaits need not raise again:
+        # never start this optional worker/summary work for that cancelled turn.
+        if task is not None and task.cancelling():
+            return
+        runtime = self._runtime
+        if self._internal_pressure_attempted or runtime.chat_stream.is_group_session or runtime._focus_group is not None:
+            return
+        planner_snapshot = runtime._chat_loop_service.planner_request_snapshot
+        if planner_snapshot is None:
+            return
+        history_owner = runtime._chat_history
+        original = tuple(history_owner)
+        pending = frozenset(runtime._get_pending_wait_tool_call_ids())
+        active_turn = self._active_logical_turn_id
+        plan = await asyncio.to_thread(
+            plan_internal_history_pressure, original, pending_call_ids=pending, active_turn_id=active_turn,
+        )
+        if plan.status == "no_pressure":
+            return
+        # A failed summary keeps its source history. Do not spend up to sixteen
+        # new summary requests on that same outer turn's internal tool rounds.
+        # The next natural message/wait/proactive trigger resets this scalar;
+        # it is not a second history, cache, timer or model retry policy.
+        self._internal_pressure_attempted = True
+        if plan.status != "ready":
+            logger.warning(
+                "%s 私聊内部历史暂不可回收: reason=%s internal=%s protected_batches=%s",
+                runtime.log_prefix, plan.status, plan.internal_count, plan.protected_batches,
+            )
+            return
+
+        def unchanged() -> bool:
+            return (
+                (task is None or not task.cancelling())
+                and runtime._chat_history is history_owner
+                and len(history_owner) == len(original)
+                and all(current is before for current, before in zip(history_owner, original, strict=True))
+                and runtime._chat_loop_service.planner_request_snapshot is planner_snapshot
+                and frozenset(runtime._get_pending_wait_tool_call_ids()) == pending
+                and self._active_logical_turn_id == active_turn
+                and not runtime.chat_stream.is_group_session and runtime._focus_group is None
+                and plan.guards is not None and plan.guards.unchanged()
+            )
+
+        if not unchanged():
+            return
+        summaries = [message for message in original if isinstance(message, ContextSummaryMessage)]
+        # Unknown historical multiple-summary state is not silently consolidated.
+        if len(summaries) > 1:
+            logger.warning("%s 私聊内部历史暂不可回收: reason=multiple_summaries", runtime.log_prefix)
+            return
+        removed = [message for index, message in enumerate(original) if index in plan.removed_indices]
+        retained = [
+            message for index, message in enumerate(original)
+            if index not in plan.removed_indices and not isinstance(message, ContextSummaryMessage)
+        ]
+        started = time.time()
+        try:
+            summary = await build_context_summary(
+                removed, planner_snapshot=planner_snapshot,
+                previous_summary=summaries[0] if summaries else None,
+                recent_messages=retained, session_id=runtime.session_id,
+                max_summary_chars=global_config.chat.context_compaction_summary_max_chars,
+                include_covered_data=True,
+            )
+        except Exception:
+            logger.exception("%s 私聊内部历史摘要失败，保留原历史与原摘要", runtime.log_prefix)
+            return
+        finally:
+            cycle_detail.time_records["internal_history_compaction"] = time.time() - started
+        # CancelledError intentionally propagates. No await from this final owner
+        # check through publication: component scalar changes are also guarded.
+        if not unchanged():
+            logger.info("%s 私聊内部历史已改变，取消提交摘要", runtime.log_prefix)
+            return
+        runtime._chat_history = [summary, *retained]
+        runtime._chat_loop_service.planner_request_snapshot = None
+        logger.info(
+            "%s 私聊内部历史回收完成: batches=%s removed_items=%s internal=%s->%s summaries=1",
+            runtime.log_prefix, plan.removed_batches, len(removed), plan.internal_count, plan.retained_internal_count,
+        )
 
     async def _post_process_chat_history_after_cycle(
         self,

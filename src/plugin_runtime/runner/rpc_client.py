@@ -19,6 +19,9 @@ from src.plugin_runtime.protocol.envelope import (
     RequestIdGenerator,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
+from src.plugin_runtime.protocol.hook_media import (
+    CAPABILITY, MediaWireError, decode_frame, encode_frame, request_context,
+)
 from src.plugin_runtime.transport.base import Connection
 from src.plugin_runtime.transport.factory import create_transport_client
 
@@ -71,6 +74,8 @@ class RPCClient:
         self._running: bool = False
         self._recv_task: Optional[asyncio.Task[None]] = None
         self._background_tasks: Set[asyncio.Task[Any]] = set()
+        self._hook_media_enabled = False
+        self._encode_lock = asyncio.Lock()
 
     @property
     def is_connected(self) -> bool:
@@ -106,6 +111,7 @@ class RPCClient:
         Returns:
             bool: 是否握手成功。
         """
+        self._hook_media_enabled = False
         client = create_transport_client(self._host_address)
         with diagnostic_stage("runner.ipc_connect"):
             self._connection = await client.connect()
@@ -115,6 +121,7 @@ class RPCClient:
             runner_id=self._runner_id,
             sdk_version=SDK_VERSION,
             session_token=self._session_token,
+            transport_capabilities=[CAPABILITY] if isinstance(self._codec, MsgPackCodec) else [],
         )
         request_id = await self._id_gen.next()
         envelope = Envelope(
@@ -130,6 +137,9 @@ class RPCClient:
         with diagnostic_stage("runner.wait_hello_response:timeout=10s"):
             resp_data = await asyncio.wait_for(connection.recv_frame(), timeout=10.0)
         response = self._codec.decode_envelope(resp_data)
+        if response.request_id != request_id or not response.is_response() or response.method != "runner.hello":
+            await self.disconnect()
+            raise RPCError(ErrorCode.E_BAD_PAYLOAD, "Invalid hello response association")
         resp_payload = HelloResponsePayload.model_validate(response.payload)
 
         if not resp_payload.accepted:
@@ -138,6 +148,9 @@ class RPCClient:
             return False
 
         logger.info(f"握手成功: host_version={resp_payload.host_version}")
+        self._hook_media_enabled = (
+            isinstance(self._codec, MsgPackCodec) and CAPABILITY in resp_payload.transport_capabilities
+        )
         self._running = True
         self._recv_task = asyncio.create_task(self._recv_loop(), name="RPCClient.recv")
         return True
@@ -145,6 +158,7 @@ class RPCClient:
     async def disconnect(self) -> None:
         """断开与 Host 的连接并清理状态。"""
         self._running = False
+        self._hook_media_enabled = False
 
         if self._recv_task is not None:
             self._recv_task.cancel()
@@ -245,9 +259,11 @@ class RPCClient:
 
     async def _recv_loop(self) -> None:
         """持续接收 Host 发来的消息并分发。"""
-        while self._running and self._connection is not None and not self._connection.is_closed:
+        connection = self._connection
+        media_enabled = self._hook_media_enabled
+        while self._running and connection is not None and self._connection is connection and not connection.is_closed:
             try:
-                data = await self._connection.recv_frame()
+                data = await connection.recv_frame()
             except (asyncio.IncompleteReadError, ConnectionError):
                 logger.info("Host 连接已断开")
                 break
@@ -258,7 +274,28 @@ class RPCClient:
                 break
 
             try:
-                envelope = self._codec.decode_envelope(data)
+                envelope = await asyncio.to_thread(
+                    decode_frame, self._codec, data, media_enabled, incoming_requests=True,
+                )
+                if self._connection is not connection:
+                    break
+            except MediaWireError as exc:
+                header = exc.header
+                if header is not None and header.is_request() and header.method == "plugin.invoke_hook":
+                    # Header association is sufficient to return an error, NEVER
+                    # to dispatch the unvalidated Hook or replay its invocation.
+                    error = header.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+                    try:
+                        await connection.send_frame(self._codec.encode_envelope(error))
+                    except Exception:
+                        break  # Cleanup below fails local pending calls promptly.
+                    continue
+                for future in self._pending_requests.values():
+                    if not future.done():
+                        future.set_exception(RPCError(ErrorCode.E_BAD_PAYLOAD, "Invalid RPC frame"))
+                self._pending_requests.clear()
+                await connection.close()
+                break
             except Exception as exc:
                 logger.error(f"解码消息失败: {exc}")
                 continue
@@ -266,9 +303,20 @@ class RPCClient:
             if envelope.is_response():
                 self._handle_response(envelope)
             elif envelope.is_request():
-                self._track_background_task(asyncio.create_task(self._handle_request(envelope)))
+                self._track_background_task(asyncio.create_task(
+                    self._handle_request(envelope, connection, media_enabled)
+                ))
             elif envelope.is_broadcast():
                 self._track_background_task(asyncio.create_task(self._handle_broadcast(envelope)))
+        if self._connection is connection:
+            self._hook_media_enabled = False
+            self._running = False
+            for future in self._pending_requests.values():
+                if not future.done():
+                    future.set_exception(RPCError(ErrorCode.E_PLUGIN_CRASHED, "Host connection closed"))
+            self._pending_requests.clear()
+            if connection is not None:
+                await connection.close()
 
     def _handle_response(self, envelope: Envelope) -> None:
         """处理 Host 返回的响应。
@@ -284,13 +332,17 @@ class RPCClient:
         else:
             future.set_result(envelope)
 
-    async def _handle_request(self, envelope: Envelope) -> None:
+    async def _handle_request(self, envelope: Envelope, connection: Connection | None = None,
+                              media_enabled: bool | None = None) -> None:
         """处理 Host 发来的请求。
 
         Args:
             envelope: 请求信封。
         """
-        connection = self._connection
+        connection = connection or self._connection
+        if media_enabled is None:
+            media_enabled = self._hook_media_enabled
+        hook_context = request_context(envelope)
         if connection is None or connection.is_closed:
             logger.warning(f"处理请求 {envelope.method} 时连接已关闭，跳过响应")
             return
@@ -306,7 +358,16 @@ class RPCClient:
 
         try:
             response = await handler(envelope)
-            await connection.send_frame(self._codec.encode_envelope(response))
+            if hook_context is not None and (not response.is_response() or not hook_context.matches(response)):
+                raise RPCError(ErrorCode.E_BAD_PAYLOAD, "Hook response routing mismatch")
+            async with self._encode_lock:
+                data = await asyncio.to_thread(
+                    encode_frame, self._codec, response, media_enabled, hook_context,
+                )
+            await connection.send_frame(data)
+        except MediaWireError as exc:
+            error_resp = envelope.make_error_response(ErrorCode.E_BAD_PAYLOAD.value, str(exc))
+            await connection.send_frame(self._codec.encode_envelope(error_resp))
         except RPCError as exc:
             error_resp = envelope.make_error_response(exc.code.value, exc.message, exc.details)
             await connection.send_frame(self._codec.encode_envelope(error_resp))

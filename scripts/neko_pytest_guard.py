@@ -21,6 +21,8 @@ REQUIRED = {
     "pytests/neko/test_release_1319.py",
     "pytests/neko/test_gemini_failure_diagnostics.py",
     "pytests/neko/test_rpc_frame_limit.py",
+    "pytests/neko/test_internal_history_pressure.py",
+    "pytests/neko/test_hook_media_wire.py",
     "pytests/maisaka/test_context_compaction.py",
     "pytests/maisaka/test_focus_group_runtime.py",
     "pytests/maisaka/test_replyer_expression_selection.py",

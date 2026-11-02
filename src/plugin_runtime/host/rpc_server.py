@@ -28,6 +28,9 @@ from src.plugin_runtime.protocol.envelope import (
     RequestIdGenerator,
 )
 from src.plugin_runtime.protocol.errors import ErrorCode, RPCError
+from src.plugin_runtime.protocol.hook_media import (
+    CAPABILITY, HookContext, MediaWireError, decode_frame, encode_frame, request_context,
+)
 from src.plugin_runtime.transport.base import Connection, TransportServer
 
 _DEFAULT_LOGGER_NAME = "plugin_runtime.host.rpc_server"
@@ -79,6 +82,9 @@ class RPCServer:
         self._tasks: List[asyncio.Task[None]] = []
         self._last_handshake_rejection_reason: str = ""
         self._connection_lock: asyncio.Lock = asyncio.Lock()
+        self._hook_media_enabled = False
+        self._pending_hook_media: Dict[int, HookContext] = {}
+        self._encode_lock = asyncio.Lock()
 
     @property
     def session_token(self) -> str:
@@ -149,6 +155,7 @@ class RPCServer:
     async def stop(self) -> None:
         """停止 RPC 服务器"""
         self._running = False
+        self._hook_media_enabled = False
         self.clear_handshake_state()
         self.abort_pending_requests("服务器正在关闭")
 
@@ -201,6 +208,8 @@ class RPCServer:
         """
         if not self._connection or self._connection.is_closed:
             raise RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 未连接")
+        connection = self._connection
+        media_enabled = self._hook_media_enabled
         request_id = await self._id_gen.next()
         envelope = Envelope(
             request_id=request_id,
@@ -215,6 +224,9 @@ class RPCServer:
         loop = asyncio.get_running_loop()
         future: asyncio.Future[Envelope] = loop.create_future()
         self._pending_requests[request_id] = future
+        hook_context = request_context(envelope)
+        if hook_context is not None:
+            self._pending_hook_media[request_id] = hook_context
         self._pending_request_metadata[request_id] = {
             "request_id": request_id,
             "method": method,
@@ -227,8 +239,13 @@ class RPCServer:
 
         try:
             # 发送请求
-            data = self._codec.encode_envelope(envelope)
-            await self._enqueue_send(self._connection, data)
+            # Serialize CPU-heavy Base64/hash/MsgPack work, without adding a new
+            # executor work queue per concurrent send. Existing write queue stays.
+            async with self._encode_lock:
+                data = await asyncio.to_thread(encode_frame, self._codec, envelope, media_enabled)
+            if self._connection is not connection or connection.is_closed:
+                raise RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner connection changed during encoding")
+            await self._enqueue_send(connection, data)
 
             # 等待响应
             timeout_sec = timeout_ms / 1000.0
@@ -242,7 +259,15 @@ class RPCServer:
             self._pending_request_metadata.pop(request_id, None)
             if isinstance(e, RPCError):
                 raise
+            if isinstance(e, MediaWireError):
+                raise RPCError(ErrorCode.E_BAD_PAYLOAD, str(e)) from e
             raise RPCError(ErrorCode.E_UNKNOWN, str(e)) from e
+        finally:
+            self._pending_hook_media.pop(request_id, None)
+            self._pending_requests.pop(request_id, None)
+            self._pending_request_metadata.pop(request_id, None)
+            if not future.done():
+                future.cancel()
 
     # ============ 内部方法 ============
     # ========= 发送循环 =========
@@ -302,6 +327,7 @@ class RPCServer:
             async with self._connection_lock:
                 if self._connection is conn:
                     self._connection = None
+                    self._hook_media_enabled = False
                     should_fail_pending_requests = True
             if should_fail_pending_requests:
                 self._fail_pending_requests(ErrorCode.E_PLUGIN_CRASHED, "Runner 连接已断开")
@@ -351,9 +377,14 @@ class RPCServer:
 
         # 发送响应
         self.clear_handshake_state()
-        resp_payload = HelloResponsePayload(accepted=True, host_version=self._host_version)
+        media_enabled = isinstance(self._codec, MsgPackCodec) and CAPABILITY in hello.transport_capabilities
+        resp_payload = HelloResponsePayload(
+            accepted=True, host_version=self._host_version,
+            transport_capabilities=[CAPABILITY] if media_enabled else [],
+        )
         resp = envelope.make_response(payload=resp_payload.model_dump())
         await conn.send_frame(self._codec.encode_envelope(resp))
+        self._hook_media_enabled = media_enabled
         return True
 
     def _check_sdk_version(self, sdk_version: str) -> bool:
@@ -369,6 +400,7 @@ class RPCServer:
     # ========= 接收循环 =========
     async def _recv_loop(self, conn: Connection) -> None:
         """消息接收主循环"""
+        media_enabled = self._hook_media_enabled
         while self._running and not conn.is_closed:
             try:
                 data = await conn.recv_frame()
@@ -380,7 +412,25 @@ class RPCServer:
                 break
 
             try:
-                envelope = self._codec.decode_envelope(data)
+                envelope = await asyncio.to_thread(
+                    decode_frame, self._codec, data, media_enabled,
+                    incoming_requests=False, pending=dict(self._pending_hook_media),
+                )
+                if self._connection is not conn:
+                    break
+            except MediaWireError as e:
+                header = e.header
+                context = self._pending_hook_media.get(header.request_id) if header is not None else None
+                if header is not None and header.is_response() and context is not None and context.matches(header):
+                    future = self._pending_requests.pop(header.request_id, None)
+                    self._pending_hook_media.pop(header.request_id, None)
+                    self._pending_request_metadata.pop(header.request_id, None)
+                    if future is not None and not future.done():
+                        future.set_exception(RPCError(ErrorCode.E_BAD_PAYLOAD, str(e)))
+                    continue  # Original Hook error policy handles this call; never resend.
+                self._fail_pending_requests(ErrorCode.E_BAD_PAYLOAD, "Invalid RPC frame")
+                await conn.close()
+                break
             except Exception as e:
                 self._logger.error(f"解码消息失败: {e}")
                 continue
@@ -405,11 +455,14 @@ class RPCServer:
     def _handle_response(self, envelope: Envelope) -> None:
         """处理来自 Runner 的响应"""
         pending_future = self._pending_requests.pop(envelope.request_id, None)
-        self._pending_request_metadata.pop(envelope.request_id, None)
+        metadata = self._pending_request_metadata.pop(envelope.request_id, None)
+        self._pending_hook_media.pop(envelope.request_id, None)
         if pending_future is None:
             return
         if not pending_future.done():
-            if envelope.error:
+            if metadata is not None and (envelope.method != metadata["method"] or envelope.plugin_id != metadata["plugin_id"]):
+                pending_future.set_exception(RPCError(ErrorCode.E_BAD_PAYLOAD, "RPC response routing mismatch"))
+            elif envelope.error:
                 pending_future.set_exception(RPCError.from_dict(envelope.error))
             else:
                 pending_future.set_result(envelope)
@@ -456,6 +509,7 @@ class RPCServer:
                 aborted_request_count += 1
         self._pending_requests.clear()
         self._pending_request_metadata.clear()
+        self._pending_hook_media.clear()
         return aborted_request_count
 
     def _fail_queued_sends(self, error_code: ErrorCode, message: str) -> int:

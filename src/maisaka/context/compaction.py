@@ -224,6 +224,7 @@ def _build_compaction_request(
     recent_messages: Sequence[LLMContextMessage],
     max_summary_chars: int,
     source_context: str = "",
+    include_covered_data: bool = False,
 ) -> ResponseRequest | ACPPlannerSnapshot:
     """在线程池构造完整请求，序列化大工具结果和复制图片不占事件循环。"""
     if not removed_messages:
@@ -233,7 +234,12 @@ def _build_compaction_request(
     if previous_summary is not None:
         messages.insert(0, previous_summary)
     # 未覆盖资料也可能是首次请求未选中的更早消息；保留时间和角色，避免重放未闭合的工具调用。
-    seen = set(covered)
+    # Selective internal reclamation replaces the sole rolling summary, rather
+    # than a chronological prefix. Supply its full source data explicitly even
+    # when object identities were already present in the successful request;
+    # mutable IM descriptions may have changed since that request was built.
+    # Keep the original snapshot history for the owned-control filter below.
+    seen = set() if include_covered_data else set(covered)
     delta = []
     for message in messages:
         if id(message) not in seen:
@@ -267,12 +273,14 @@ async def build_context_summary(
     session_id: str,
     max_summary_chars: int,
     source_context: str = "",
+    include_covered_data: bool = False,
 ) -> ContextSummaryMessage:
     """保留 Planner 的完整请求前缀，仅追加未覆盖资料和压缩指令。"""
     request = await asyncio.to_thread(
         _build_compaction_request, removed_messages, planner_snapshot=planner_snapshot,
         previous_summary=previous_summary, recent_messages=recent_messages,
         max_summary_chars=max_summary_chars, source_context=source_context,
+        include_covered_data=include_covered_data,
     )
     if isinstance(request, ACPPlannerSnapshot):
         result = await generate_planner_response(
