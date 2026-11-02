@@ -11,6 +11,8 @@
     "src/maisaka/context/compaction.py": "05035009d2a669da7fc0bfcf5b95b400991b6cbb038ae6b9c6bf6e2ea56614f2",
     "src/plugin_runtime/component_query.py": "e66ea8974146cde45295b21ea9e4523e6461dfd63fc3c0b5bfce03c6706dcbaa",
     "src/common/self_update.py": "ec0bf3fc8e37588ff2db8da27c196344b55e008a6b1314f92e232b156d65fb9d",
+    "src/llm_models/gemini_failure_diagnostics.py": "c92f7b271f33480de0a4250499bf99658b52907f6467b09259aceb39118e7ec7",
+    "src/llm_models/request_snapshot.py": "736643ce3e03be99ef8d8acddf5019961ba685fde1be573e3fef3768cd9a1945",
     "uv.lock": "d70b9e0065439b94587a812077b9efc4e1685f32fc594c1f48f7dc284b61128a"
   }
 }

@@ -27,6 +27,7 @@ from src.llm_models.model_client.base_client import (
     ResponseRequest,
 )
 from src.llm_models.generation_diagnostics import sanitize_diagnostic_url, sanitize_generation_diagnostic
+from src.llm_models.gemini_failure_diagnostics import gemini_failure_diagnostic
 from src.llm_models.payload_content.context_item import (
     CONTEXT_ITEM_SCHEMA_VERSION,
     ContextItem,
@@ -849,6 +850,24 @@ def save_failed_request_snapshot(
                 operation=operation,
                 trace_context=active_trace_context,
             )
+            if client_type == "gemini" and internal_request.get("request_kind") == "response":
+                # Add metadata to this existing attempt/event, never create another request or log body.
+                try:
+                    diagnostic = gemini_failure_diagnostic(error, internal_request)
+                    generation_attempt.error["gemini_diagnostic"] = diagnostic
+                    logger.warning(
+                        "Gemini 失败诊断: "
+                        + json.dumps({
+                            "request_id": active_trace_context.request_id
+                                if re.fullmatch(r"[a-fA-F0-9-]{1,64}", active_trace_context.request_id) else "unavailable",
+                            "attempt": generation_attempt.provider_attempt,
+                            "duration_ms": generation_attempt.duration_ms,
+                            "diagnostic": diagnostic,
+                        }, ensure_ascii=False)
+                    )
+                except Exception:
+                    # Observability must not replace the original failure or prevent its snapshot.
+                    logger.warning("Gemini 失败诊断元数据不可用，仍按原流程保存失败快照")
             error.generation_trace_context = active_trace_context
             error.request_snapshot_attempt = generation_attempt.provider_attempt
             with PromptPreviewLogger._timed_storage_lock("snapshot.save_transaction"):
