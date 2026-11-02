@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_all_registered_source_bytes_match():
     manifest = json.loads((ROOT / "neko-patches.json").read_text(encoding="utf-8"))
-    assert len(manifest["sources"]) == 16
+    assert len(manifest["sources"]) == 17
     for name, digest in manifest["sources"].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
 

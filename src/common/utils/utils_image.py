@@ -81,15 +81,18 @@ class ImageUtils:
 
         Args:
             gif_bytes (bytes): 输入的GIF图片字节数据
-            similarity_threshold (float): 判定帧相似的阈值 (MSE)，越小表示要求差异越大才算不同帧，默认1000.0
-            max_frames (int): 最大抽取的帧数，默认15
+            similarity_threshold (float): 判定帧相似的阈值 (MSE)，差异大于阈值才保留，默认1000.0
+            max_frames (int): 最大抽取的帧数，必须大于0，默认15
         Returns:
             bytes: 拼接后的静态图像字节数据，格式为JPEG
         Raises:
-            ValueError: 如果输入的GIF无效或无法处理
+            ValueError: 如果输入的GIF无效、无法处理或max_frames不大于0
             MemoryError: 如果处理过程中内存不足
             Exception: 其他异常
         """
+        if max_frames <= 0:
+            raise ValueError("max_frames必须大于0")
+
         with PILImage.open(io.BytesIO(gif_bytes)) as gif_image:
             if not gif_image.format or gif_image.format.lower() != "gif":
                 logger.error("输入的图片不是有效的GIF格式")
@@ -102,7 +105,8 @@ class ImageUtils:
             for frame in ImageSequence.Iterator(gif_image):
                 # 确保是RGB格式方便比较
                 frame_rgb = frame.convert("RGB")
-                frame_np = np.array(frame_rgb)
+                # 在减法和平方前转为浮点数，避免uint8回绕使不同帧被误判为相似。
+                frame_np = np.array(frame_rgb, dtype=np.float32)
 
                 if frame_index == 0:
                     selected_frames.append(frame_rgb.copy())
@@ -114,8 +118,8 @@ class ImageUtils:
                     if mse > similarity_threshold:
                         selected_frames.append(frame_rgb.copy())
                         last_selected_frame_np = frame_np
-                        if len(selected_frames) >= max_frames:
-                            break
+                if len(selected_frames) >= max_frames:
+                    break
                 frame_index += 1
 
         if not selected_frames:
