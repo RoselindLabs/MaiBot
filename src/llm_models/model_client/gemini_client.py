@@ -1,5 +1,7 @@
 # ruff: noqa: B025
 
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any, AsyncIterator, Callable, Coroutine, Dict, List, Optional, Tuple, cast
 
 import asyncio
@@ -45,6 +47,7 @@ from src.common.logger import get_logger
 from src.common.http_client import get_shared_ssl_context
 from src.config.model_configs import APIProvider
 from src.llm_models.exceptions import (
+    ContentBlockedError,
     EmptyResponseException,
     NetworkConnectionError,
     ReqAbortException,
@@ -149,6 +152,29 @@ GEMINI_EXTRA_CONTENT_PROVIDER_KEY = "google"
 GEMINI_EXTRA_CONTENT_THOUGHT_SIGNATURE_KEY = "thought_signature"
 GEMINI_FALLBACK_THOUGHT_SIGNATURE = b"skip_thought_signature_validator"
 """当历史 function call 没有原始 thought signature 时，使用官方允许的占位签名跳过校验。"""
+
+
+def _raise_if_prohibited_content(response: GenerateContentResponse) -> None:
+    """仅识别明确的结构化输入拦截，不按正文或其它结束原因猜测。"""
+    feedback = response.prompt_feedback
+    if feedback is not None and feedback.block_reason == "PROHIBITED_CONTENT":
+        raise ContentBlockedError(response)
+
+
+async def _check_stream_content_blocks(
+    response_stream: AsyncIterator[GenerateContentResponse],
+    interrupt_flag: asyncio.Event | None,
+) -> AsyncIterator[GenerateContentResponse]:
+    """在交给默认或自定义解析器前检查每块，保留首块的拦截证据。"""
+    try:
+        async for chunk in response_stream:
+            if interrupt_flag and interrupt_flag.is_set():
+                raise ReqAbortException("请求被外部信号中断")
+            _raise_if_prohibited_content(chunk)
+            yield chunk
+    finally:
+        if isinstance(response_stream, AsyncGenerator):
+            await response_stream.aclose()
 
 
 def _normalize_image_mime_type(image_format: str) -> str:
@@ -1062,7 +1088,10 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                     AsyncIterator[GenerateContentResponse],
                     await await_task_with_interrupt(stream_task, request.interrupt_flag),
                 )
-                response, usage_record = await stream_response_handler(raw_response_stream, request.interrupt_flag)
+                async with aclosing(
+                    _check_stream_content_blocks(raw_response_stream, request.interrupt_flag)
+                ) as checked_stream:
+                    response, usage_record = await stream_response_handler(checked_stream, request.interrupt_flag)
             else:
                 completion_task: asyncio.Task[GenerateContentResponse] = asyncio.create_task(
                     self.client.aio.models.generate_content(
@@ -1075,6 +1104,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                     GenerateContentResponse,
                     await await_task_with_interrupt(completion_task, request.interrupt_flag),
                 )
+                _raise_if_prohibited_content(raw_response)
                 response, usage_record = response_parser(raw_response)
 
             response.wire_protocol = "gemini_generate_content"
@@ -1117,7 +1147,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
             )
             attach_request_snapshot(wrapped_error, snapshot_path)
             raise wrapped_error from exc
-        except EmptyResponseException as exc:
+        except (ContentBlockedError, EmptyResponseException) as exc:
             snapshot_path = await asyncio.to_thread(
                 save_failed_request_snapshot,
                 api_provider=self.api_provider,

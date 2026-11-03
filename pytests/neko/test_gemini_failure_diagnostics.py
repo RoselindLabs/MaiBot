@@ -1,10 +1,16 @@
 """Real SDK metadata, synthetic responses only; never call a model or replay a request."""
 
+from contextlib import asynccontextmanager
+from copy import deepcopy
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import asyncio
 import json
 import pytest
 from google.genai import types
 
-from src.llm_models.exceptions import EmptyResponseException
+from src.llm_models.exceptions import ContentBlockedError, EmptyResponseException, ReqAbortException
 from src.llm_models.gemini_failure_diagnostics import gemini_failure_diagnostic
 
 
@@ -187,3 +193,216 @@ def test_http_error_code_available_without_response_body():
     error.code = 429
     assert gemini_failure_diagnostic(error, request())["http_status"] == 429
     assert gemini_failure_diagnostic(error, request())["response_metadata_available"] is False
+
+
+def blocked_response(reason="PROHIBITED_CONTENT"):
+    return types.GenerateContentResponse(
+        prompt_feedback=types.GenerateContentResponsePromptFeedback(block_reason=reason),
+        usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=42, total_token_count=42),
+    )
+
+
+def success_response():
+    return types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(parts=[types.Part(text="synthetic answer")]))]
+    )
+
+
+@pytest.fixture
+def blocked_request_harness(snapshot_store, monkeypatch):
+    """Run real client parsing and both orchestration layers; only the transport is fake."""
+    from src.config.model_configs import APIProvider, ModelInfo, TaskConfig
+    from src.llm_models import utils_model as llm
+    from src.llm_models.model_client.gemini_client import GeminiClient
+    from src.llm_models.payload_content.context_item import ContextItemBuilder
+
+    task = TaskConfig(model_list=["primary", "backup"], selection_strategy="sequential", hard_timeout=240)
+    monkeypatch.setattr(llm.LLMOrchestrator, "_get_task_config_or_raise", lambda self: task)
+    orchestrator = llm.LLMOrchestrator("planner", request_type="maisaka.planner")
+    provider = APIProvider(
+        name="synthetic", base_url="https://example.invalid/v1beta", api_key="never-print-me",
+        client_type="gemini", max_retry=4, retry_interval=1,
+    )
+    models = {
+        name: ModelInfo(name=name, model_identifier="gemini-2.5-flash", api_provider=provider.name, model_type="llm")
+        for name in task.model_list
+    }
+    monkeypatch.setattr(llm.TempMethodsLLMUtils, "get_model_info_by_name", models.__getitem__)
+    monkeypatch.setattr(llm.TempMethodsLLMUtils, "get_provider_by_name", lambda name: provider)
+    client = GeminiClient.__new__(GeminiClient)
+    client.api_provider = provider
+    transport = SimpleNamespace(generate_content=AsyncMock(), generate_content_stream=AsyncMock())
+    client.client = SimpleNamespace(aio=SimpleNamespace(models=transport))
+    registry = AsyncMock(return_value=client)
+    monkeypatch.setattr(llm.client_registry, "get_client_class_instance_async", registry)
+
+    @asynccontextmanager
+    async def usage(*args):
+        yield
+
+    monkeypatch.setattr(llm, "track_model_task_usage", usage)
+    retry = Mock()
+    error = Mock()
+    monkeypatch.setattr(orchestrator, "_schedule_llm_retry_event", retry)
+    monkeypatch.setattr(orchestrator, "_schedule_llm_error_event", error)
+    items = [ContextItemBuilder().add_text_part("synthetic input").build()]
+    return SimpleNamespace(
+        orchestrator=orchestrator, transport=transport, registry=registry,
+        retry=retry, error=error, items=items, request_type=llm.RequestType.RESPONSE,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_prohibited_content_stops_retry_and_fallback_with_original_diagnostic(blocked_request_harness, stream):
+    from src.llm_models import request_snapshot as snapshots
+
+    h = blocked_request_harness
+    before = deepcopy(h.items)
+    raw = blocked_response()
+    stream_state = {"closed": False, "continued": False}
+
+    async def chunks():
+        try:
+            yield raw
+            stream_state["continued"] = True
+            yield types.GenerateContentResponse()
+        finally:
+            stream_state["closed"] = True
+
+    h.transport.generate_content.return_value = raw
+    h.transport.generate_content_stream.return_value = chunks() if stream else None
+    with pytest.raises(ContentBlockedError, match="本轮已停止") as captured:
+        await h.orchestrator._execute_request(
+            h.request_type, context_factory=lambda client: h.items, force_stream_mode=stream,
+        )
+    assert captured.value.ext_info is raw
+    assert h.items == before
+    assert h.registry.await_count == 1  # No selection of the backup model.
+    assert h.transport.generate_content.await_count == (0 if stream else 1)
+    assert h.transport.generate_content_stream.await_count == (1 if stream else 0)
+    h.retry.assert_not_called()
+    h.error.assert_called_once_with(model_name="primary", message=str(captured.value))
+    assert h.orchestrator.model_usage == {"primary": (0, 0, 0), "backup": (0, 0, 0)}
+    if stream:
+        assert stream_state == {"closed": True, "continued": False}
+    path = next(snapshots.LLM_REQUEST_LOG_DIR.rglob("*.json"))
+    payload = snapshots.read_request_snapshot(path)
+    assert payload["metadata"]["status"] == "final_failed"
+    assert len(payload["generation_attempts"]) == 1
+    attempt = payload["generation_attempts"][0]
+    assert attempt["status"] == "final_failed"
+    assert attempt["error"]["type"] == "ContentBlockedError"
+    diagnostic = attempt["error"]["gemini_diagnostic"]
+    assert diagnostic["response"]["prompt_block_reason"] == "PROHIBITED_CONTENT"
+    assert diagnostic["response"]["candidate_count"] == 0
+    assert diagnostic["response"]["usage"]["total_token_count"] == 42
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, "SAFETY", "OTHER", "BLOCK_REASON_UNSPECIFIED"])
+async def test_other_empty_responses_keep_retrying_without_rewriting_input(blocked_request_harness, reason):
+    h = blocked_request_harness
+    raw = types.GenerateContentResponse() if reason is None else blocked_response(reason)
+    h.transport.generate_content.side_effect = [raw, success_response()]
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert result.api_response.content == "synthetic answer"
+    assert h.transport.generate_content.await_count == 2
+    assert h.registry.await_count == 1
+    h.retry.assert_called_once()
+    h.error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_all_plain_empty_responses_still_switch_to_backup(blocked_request_harness):
+    h = blocked_request_harness
+    h.transport.generate_content.side_effect = [types.GenerateContentResponse()] * 4 + [success_response()]
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert result.model_info.name == "backup"
+    assert h.transport.generate_content.await_count == 5
+    assert h.registry.await_count == 2
+    assert h.retry.call_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TimeoutError(), ConnectionError("synthetic network failure")])
+async def test_transport_failures_keep_the_existing_retry_policy(blocked_request_harness, failure):
+    h = blocked_request_harness
+    h.transport.generate_content.side_effect = [failure, success_response()]
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert result.api_response.content == "synthetic answer"
+    assert h.transport.generate_content.await_count == 2
+    h.retry.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_custom_parsers_cannot_turn_a_block_into_output(blocked_request_harness, stream):
+    h = blocked_request_harness
+    raw = blocked_response()
+    parser = Mock(side_effect=AssertionError("blocked response reached custom parser"))
+    received = []
+
+    async def chunks():
+        yield raw
+
+    async def handler(source, interrupt):
+        async for chunk in source:
+            received.append(chunk)
+        raise AssertionError("blocked stream completed as success")
+
+    h.transport.generate_content.return_value = raw
+    h.transport.generate_content_stream.return_value = chunks() if stream else None
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(
+            h.request_type, context_factory=lambda client: h.items,
+            force_stream_mode=stream, async_response_parser=parser, stream_response_handler=handler,
+        )
+    parser.assert_not_called()
+    assert received == []
+    h.retry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_not_reported_as_content_block(blocked_request_harness):
+    h = blocked_request_harness
+    h.transport.generate_content.side_effect = asyncio.CancelledError()
+    with pytest.raises(asyncio.CancelledError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    h.retry.assert_not_called()
+    h.error.assert_not_called()
+    assert h.orchestrator.model_usage["primary"] == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_precedes_block_and_closes_generator():
+    from src.llm_models.model_client.gemini_client import _check_stream_content_blocks
+
+    interrupt = asyncio.Event()
+    interrupt.set()
+    closed = []
+
+    async def chunks():
+        try:
+            yield blocked_response()
+        finally:
+            closed.append(True)
+
+    with pytest.raises(ReqAbortException):
+        async for _ in _check_stream_content_blocks(chunks(), interrupt):
+            pytest.fail("interrupted stream yielded content")
+    assert closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_storage_failure_does_not_enable_retries(blocked_request_harness, monkeypatch):
+    from src.llm_models import request_snapshot as snapshots
+
+    h = blocked_request_harness
+    monkeypatch.setattr(snapshots, "_write_snapshot", Mock(side_effect=OSError("synthetic storage failure")))
+    h.transport.generate_content.return_value = blocked_response()
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.transport.generate_content.await_count == h.registry.await_count == 1
+    h.retry.assert_not_called()
+    h.error.assert_called_once()

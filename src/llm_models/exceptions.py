@@ -108,6 +108,12 @@ class EmptyResponseException(ResponseContextException):
     default_message = "响应内容为空，这可能是一个临时性问题"
 
 
+class ContentBlockedError(ResponseContextException):
+    """上游明确返回内容拦截，终止当前逻辑请求，不重试或切换模型。"""
+
+    default_message = "上游内容检查拦截（PROHIBITED_CONTENT），本轮已停止。"
+
+
 class ModelAttemptFailed(Exception):
     """当在单个模型上的所有重试都失败后，由“执行者”函数抛出，以通知“调度器”切换模型。"""
 

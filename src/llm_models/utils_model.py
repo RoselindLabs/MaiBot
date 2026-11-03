@@ -25,6 +25,7 @@ from src.common.data_models.llm_service_data_models import (
 from src.config.config import config_manager
 from src.config.model_configs import APIProvider, ModelInfo, TaskConfig
 from src.llm_models.exceptions import (
+    ContentBlockedError,
     EmptyResponseException,
     LLMTaskTimeoutError,
     ModelAttemptFailed,
@@ -1109,6 +1110,10 @@ class LLMOrchestrator:
                     # 包括图片重试后的实际输入；禁止用初始请求冒充最终成功请求。
                     response.request_snapshot = await asyncio.to_thread(active_request.detached_snapshot)
                 return response
+            except ContentBlockedError as e:
+                await ensure_attempt_snapshot(e)
+                raise
+
             except EmptyResponseException as e:
                 await ensure_attempt_snapshot(e)
                 # 空回复：通常为临时问题，单独记录并重试
@@ -1453,6 +1458,14 @@ class LLMOrchestrator:
                         f"LLMOrchestrator[{self.request_type}] 模型 model={model_info.name} 的请求已被外部信号中断"
                     )
                 raise e
+
+            except ContentBlockedError as e:
+                # 内容拦截不是模型可用性故障；释放在途占用，不惩罚模型、不切备用。
+                self._adjust_model_usage(model_info.name, usage_penalty_delta=-1)
+                await asyncio.to_thread(mark_request_final_failure, e)
+                self._schedule_llm_error_event(model_name=model_info.name, message=str(e))
+                logger.warning(f"任务 '{self.request_type or self.task_name}'：{e}")
+                raise
 
             except ModelAttemptFailed as e:
                 last_exception = e.original_exception or e
