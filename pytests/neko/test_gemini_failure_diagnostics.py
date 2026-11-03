@@ -220,8 +220,12 @@ def blocked_request_harness(snapshot_store, monkeypatch):
     monkeypatch.setattr(llm.LLMOrchestrator, "_get_task_config_or_raise", lambda self: task)
     orchestrator = llm.LLMOrchestrator("planner", request_type="maisaka.planner")
     provider = APIProvider(
-        name="synthetic", base_url="https://example.invalid/v1beta", api_key="never-print-me",
-        client_type="gemini", max_retry=4, retry_interval=1,
+        name="synthetic",
+        base_url="https://example.invalid/v1beta",
+        api_key="never-print-me",
+        client_type="gemini",
+        max_retry=4,
+        retry_interval=1,
     )
     models = {
         name: ModelInfo(name=name, model_identifier="gemini-2.5-flash", api_provider=provider.name, model_type="llm")
@@ -247,8 +251,13 @@ def blocked_request_harness(snapshot_store, monkeypatch):
     monkeypatch.setattr(orchestrator, "_schedule_llm_error_event", error)
     items = [ContextItemBuilder().add_text_part("synthetic input").build()]
     return SimpleNamespace(
-        orchestrator=orchestrator, transport=transport, registry=registry,
-        retry=retry, error=error, items=items, request_type=llm.RequestType.RESPONSE,
+        orchestrator=orchestrator,
+        transport=transport,
+        registry=registry,
+        retry=retry,
+        error=error,
+        items=items,
+        request_type=llm.RequestType.RESPONSE,
     )
 
 
@@ -274,7 +283,9 @@ async def test_prohibited_content_stops_retry_and_fallback_with_original_diagnos
     h.transport.generate_content_stream.return_value = chunks() if stream else None
     with pytest.raises(ContentBlockedError, match="本轮已停止") as captured:
         await h.orchestrator._execute_request(
-            h.request_type, context_factory=lambda client: h.items, force_stream_mode=stream,
+            h.request_type,
+            context_factory=lambda client: h.items,
+            force_stream_mode=stream,
         )
     assert captured.value.ext_info is raw
     assert h.items == before
@@ -355,8 +366,11 @@ async def test_custom_parsers_cannot_turn_a_block_into_output(blocked_request_ha
     h.transport.generate_content_stream.return_value = chunks() if stream else None
     with pytest.raises(ContentBlockedError):
         await h.orchestrator._execute_request(
-            h.request_type, context_factory=lambda client: h.items,
-            force_stream_mode=stream, async_response_parser=parser, stream_response_handler=handler,
+            h.request_type,
+            context_factory=lambda client: h.items,
+            force_stream_mode=stream,
+            async_response_parser=parser,
+            stream_response_handler=handler,
         )
     parser.assert_not_called()
     assert received == []
