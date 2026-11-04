@@ -13,7 +13,7 @@ concurrency:
 jobs:
   contracts:
     name: contracts (${{ matrix.case }})
-    if: github.repository == 'znzsofficial/MaiBot'
+    if: github.repository == 'RoselindLabs/MaiBot'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
@@ -39,7 +39,7 @@ jobs:
           path: source
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: znzsofficial/neko-tts
+          repository: RoselindLabs/neko-tts
           ref: 7be09dec956fbae6a8600eef5df14cf116e18d57
           persist-credentials: false
           path: fixtures/neko-tts
@@ -70,7 +70,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   ci-gate:
-    if: always() && github.repository == 'znzsofficial/MaiBot'
+    if: always() && github.repository == 'RoselindLabs/MaiBot'
     needs: contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 5

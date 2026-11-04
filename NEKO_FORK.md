@@ -13,7 +13,7 @@
 | 上游与依赖 | MaiBot1.3.19／SDK2.20.0／Dashboard1.9.13，固定uv.lock，DB46 |
 | 本次修复源码 | 私聊自身回传业务`ce8cc6f55`，测试格式收尾`e98ce4592`；[双平台CI41843275216](https://github.com/znzsofficial/MaiBot/actions/runs/41843275216)通过 |
 | 来源登记 | `neko-patches.json`纳管27源＋锁28项；Dashboard从同一部署提交构建并单独登记制品 |
-| 配套适配器 | [SnowLuma维护fork](https://github.com/znzsofficial/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
+| 配套适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
 | 发布状态 | 维护实例已固定部署`1f1c41d0e0dcd00a4352ccdcb6c2c2c9c2a004a5`，配套适配器`b44d8744b29da1f62c65fa27987800b2f08ba941`及同提交Dashboard；62.81秒就绪 |
 
 本文件维护行为合同、验证和升级边界；实例的端口、PID、运行配置、备份路径及详细日期验收
@@ -222,6 +222,9 @@ Life已退役且仓库改为私有，2026-10-28用户批准解除公共CI的私�
 
 ## 分支与上游同步
 
+- 维护仓现归属[RoselindLabs/MaiBot](https://github.com/RoselindLabs/MaiBot)，2026-11-04从个人账号原位转移，
+  历史提交、上游fork关系、维护分支及固定部署修订保持。旧日期CI链接保留其证据语义；新CI限定组织仓，
+  TTS固定fixture仅更新owner、SHA不变。组织迁移本身不触发生产重启或部署。
 - `origin` 为此 fork，`upstream` 为官方仓库；`main` 仅作上游快进镜像，**`neko/main` 为维护默认分支**。
 - 每次只选择正式 tag，先 fetch/审查变动，在临时集成分支合并到维护线；逐项判断现有差异是否
   已被上游实现、仍需保留或需要移植，再验证相关行为。不要自动追 main/dev，不强推共享历史。

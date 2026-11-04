@@ -62,7 +62,7 @@ def test_only_the_readonly_fork_workflow_is_active():
     text = files[0].read_text(encoding="utf-8")
     assert "contents: read" in text and "pull_request_target" not in text
     assert "id-token:" not in text and "secrets." not in text and "write" not in text
-    assert "github.repository == 'znzsofficial/MaiBot'" in text
+    assert "github.repository == 'RoselindLabs/MaiBot'" in text
     assert len(list((ROOT / ".github/upstream-workflows").glob("*.yml"))) == 16
 
 
