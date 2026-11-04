@@ -161,17 +161,19 @@ function isMessageTimelineEntry(entry?: TimelineEntry) {
   return entry?.type === 'message.ingested' || entry?.type === 'message.sent'
 }
 
-/** 只配对同一 QQ 群会话里的发送记录与自身回传，不按正文或时间猜测。 */
+/** 只配对同一 QQ 会话里的发送记录与自身回传，不按正文或时间猜测。 */
 function getSelfEchoIdentity(entry: TimelineEntry): string | null {
   if (!isMessageTimelineEntry(entry)) return null
   const data = entry.data as MessageIngestedEvent | MessageSentEvent
   if (data.platform !== 'qq') return null
-  const identity = [entry.sessionId, data.session_id, data.platform, data.group_id, data.user_id, data.message_id]
+  // 私聊事件显式携带空 group_id，正式 session 已包含真实对端；未知字段不作私聊猜测。
+  if (typeof data.group_id !== 'string') return null
+  const identity = [entry.sessionId, data.session_id, data.platform, data.user_id, data.message_id]
   if (entry.sessionId !== data.session_id || identity.some(value => typeof value !== 'string' || !value.trim())) {
     return null
   }
   // 正式 session 已隔离账号/scope；发送方 user_id 再限定为这条出站的实际机器人账号。
-  return JSON.stringify(identity)
+  return JSON.stringify([...identity, data.group_id])
 }
 
 function isWaitTool(toolName?: string) {

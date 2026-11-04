@@ -198,6 +198,8 @@ class ChatManager:
         group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
         route_key = RouteKeyFactory.from_session_message(message)
         account_id, scope = route_key.account_id, route_key.scope
+        if group_id is None:
+            user_id = SessionUtils.private_peer_id(user_id, account_id, message.message_info.additional_config)
         session_id = SessionUtils.calculate_session_id(
             platform,
             user_id=user_id,
@@ -239,6 +241,9 @@ class ChatManager:
                 changed = True
             return changed
 
+        # 自身私聊回传只描述发送者，不能用机器人昵称覆盖对端身份。
+        if user_info.user_id != session.user_id:
+            return changed
         user_nickname = self._normalize_identity_text(user_info.user_nickname)
         user_cardname = self._normalize_identity_text(user_info.user_cardname)
         if user_nickname and session.user_nickname != user_nickname:

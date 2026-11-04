@@ -315,6 +315,7 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
 
     async def _restore_recent_context_from_db(self) -> None:
         """启动时从消息库恢复最近上下文，避免重启后丢失短期对话窗口。"""
+        from src.maisaka.context.history import has_self_message
 
         if self._chat_history or self.message_cache:
             return
@@ -335,6 +336,8 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
         restored_history: list[LLMContextMessage] = []
         for message in recent_messages:
             if message.is_notify:
+                continue
+            if has_self_message(restored_history, message):
                 continue
 
             self._quote_counter.record(message)
@@ -578,7 +581,7 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
         """将一条已发送成功的消息同步到 Maisaka 内部历史。"""
 
         try:
-            from src.maisaka.context.history import build_prefixed_message_sequence, build_session_message_visible_text
+            from src.maisaka.context.history import build_prefixed_message_sequence, build_session_message_visible_text, has_self_message
             from src.maisaka.context.messages import SessionBackedMessage
             from src.maisaka.context.planner_messages import (
                 build_planner_prefix,
@@ -587,6 +590,10 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
 
             user_info = message.message_info.user_info
             speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
+            if has_self_message(self._chat_history, message):
+                # 回传可能先于发送回执进入历史；仍发布成功发送事件，不再追加第二份上下文。
+                self._emit_monitor_message_sent(message=message, speaker_name=speaker_name, source_kind=source_kind)
+                return True
             include_chat_id = self._is_focus_mode_active_for_current_chat()
             planner_prefix = build_planner_prefix(
                 timestamp=message.timestamp,
@@ -1014,6 +1021,10 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
 
     async def _register_message(self, message: SessionMessage) -> None:
         """按聊天串行登记，避免媒体构建期间同一条消息重复进入共享上下文。"""
+        from src.maisaka.context.history import has_self_message
+
+        if has_self_message(self._chat_history, message):
+            return
         if self._focus_group is not None and self._focus_group.has_message(self.session_id, message.message_id):
             return
         if self._running:

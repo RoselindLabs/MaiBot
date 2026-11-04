@@ -777,7 +777,11 @@ class ChatBot:
 
             session_id = SessionUtils.calculate_session_id(
                 message.platform,
-                user_id=message.message_info.user_info.user_id,
+                user_id=(
+                    user_info.user_id if group_info else SessionUtils.private_peer_id(
+                        user_info.user_id, account_id, message.message_info.additional_config
+                    )
+                ),
                 group_id=group_info.group_id if group_info else None,
                 account_id=account_id,
                 scope=scope,
@@ -862,7 +866,11 @@ class ChatBot:
             chat_manager.register_message(message)
 
             platform = message.platform
-            user_id = user_info.user_id
+            user_id = (
+                user_info.user_id if group_info else SessionUtils.private_peer_id(
+                    user_info.user_id, account_id, message.message_info.additional_config
+                )
+            )
             group_id = group_info.group_id if group_info else None
             _ = await chat_manager.get_or_create_session(
                 platform,

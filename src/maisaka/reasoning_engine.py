@@ -1141,11 +1141,17 @@ class MaisakaReasoningEngine:
 
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
         """处理传入消息列表，将其转换为历史消息并加入聊天历史缓存。"""
+        from src.maisaka.context.history import has_self_message
+
         for message in messages:
+            if has_self_message(self._runtime._chat_history, message):
+                continue
             history_message = await self._build_history_message(message)
             if history_message is None:
                 continue
-
+            # 媒体构建会让出事件循环，期间发送成功同步可能已经追加同一条消息。
+            if has_self_message(self._runtime._chat_history, message):
+                continue
             self._insert_chat_history_message(history_message)
 
     async def _build_history_message(
@@ -1156,6 +1162,11 @@ class MaisakaReasoningEngine:
     ) -> Optional[LLMContextMessage]:
         """根据真实消息构造对应的上下文消息。"""
 
+        if (
+            message.account_id and message.message_info.user_info.user_id == message.account_id
+            and source_kind == "user" and not message.is_notify
+        ):
+            source_kind = "guided_reply"
         source_sequence = message.raw_message
         visible_text = self._build_legacy_visible_text(message, source_sequence, source_kind=source_kind)
         include_chat_id = self._runtime._is_focus_mode_active_for_current_chat()

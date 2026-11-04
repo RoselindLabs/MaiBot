@@ -378,6 +378,7 @@ class PluginRuntimeManager(
         # 文件来源由已登记的入站驱动签注，不接受消息负载伪造的适配器身份。
         from src.platform_io import get_platform_io_manager
         from src.common.data_models.message_component_data_model import FileComponent
+        from src.common.utils.utils_session import SessionUtils
 
         descriptor = get_platform_io_manager().driver_registry.get(envelope.driver_id).descriptor
         group = session_message.message_info.group_info
@@ -386,7 +387,12 @@ class PluginRuntimeManager(
             "account_id": descriptor.account_id or "", "scope": descriptor.scope or "",
             "platform": descriptor.platform,
             "group_id": group.group_id if group else "",
-            "user_id": session_message.message_info.user_info.user_id,
+            "user_id": (
+                session_message.message_info.user_info.user_id if group else SessionUtils.private_peer_id(
+                    session_message.message_info.user_info.user_id, session_message.account_id,
+                    session_message.message_info.additional_config,
+                )
+            ),
             "files": {(component.file_id, component.busid) for component in session_message.raw_message.components
                       if isinstance(component, FileComponent)},
         }

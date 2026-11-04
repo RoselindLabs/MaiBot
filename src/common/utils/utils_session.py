@@ -1,9 +1,23 @@
-from typing import Optional
+from typing import Any, Mapping, Optional
 
 import hashlib
 
 
 class SessionUtils:
+    @staticmethod
+    def private_peer_id(
+        user_id: str,
+        account_id: Optional[str],
+        additional_config: Optional[Mapping[str, Any]],
+    ) -> str:
+        """区分私聊发送者与会话对端；自身消息必须提供明确的接收者。"""
+        if not account_id or user_id != account_id:
+            return user_id
+        target = (additional_config or {}).get("platform_io_target_user_id")
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError("自身私聊消息缺少明确的接收者，不能按发送者创建会话")
+        return target.strip()
+
     @staticmethod
     def calculate_session_id(
         platform: str,

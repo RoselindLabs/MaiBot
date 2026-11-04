@@ -1652,6 +1652,9 @@ class PluginRunnerSupervisor:
         for key, value in route_metadata.items():
             if key in {"platform", *RouteKeyFactory.ACCOUNT_ID_KEYS, *RouteKeyFactory.SCOPE_KEYS, "scope"}:
                 continue
+            if key in {"platform_io_target_user_id", "platform_io_target_group_id"}:
+                # 策略已按 message 内的会话目标验收，辅助元数据不得随后改写目标。
+                continue
             if value is None:
                 continue
             normalized_value = str(value).strip()
@@ -1700,7 +1703,7 @@ class PluginRunnerSupervisor:
         return route_key
 
     @staticmethod
-    def _resolve_policy_target(message: Dict[str, Any]) -> tuple[str, str]:
+    def _resolve_policy_target(message: Dict[str, Any], *, account_id: Optional[str] = None) -> tuple[str, str]:
         """从标准消息字典解析群聊/私聊策略目标。"""
 
         group_id = str(message.get("group_id") or "").strip()
@@ -1718,7 +1721,12 @@ class PluginRunnerSupervisor:
             user_info = message_info.get("user_info")
         if not user_id and isinstance(user_info, dict):
             user_id = str(user_info.get("user_id") or "").strip()
-        return "private", user_id
+        from src.common.utils.utils_session import SessionUtils
+
+        additional_config = message_info.get("additional_config") if isinstance(message_info, dict) else None
+        return "private", SessionUtils.private_peer_id(
+            user_id, account_id if account_id is not None else message.get("account_id"), additional_config
+        )
 
     def _evaluate_inbound_adapter_policy(
         self,
@@ -1729,7 +1737,7 @@ class PluginRunnerSupervisor:
     ) -> Dict[str, Any]:
         """执行统一适配器入站名单策略。"""
 
-        chat_type, target_id = self._resolve_policy_target(message)
+        chat_type, target_id = self._resolve_policy_target(message, account_id=route_key.account_id)
         result = get_adapter_policy_manager().evaluate(
             AdapterIdentity(
                 adapter_id=self._build_message_gateway_driver_id(plugin_id, gateway_entry.name),

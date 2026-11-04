@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Set
 
 import asyncio
+import json
 
 from src.common.logger import get_logger
 from src.core.local_operator import LOCAL_PLATFORM_BOT_IDS
@@ -669,7 +670,26 @@ class PlatformIOManager:
         if not normalized_dedupe_key:
             return None
 
-        return f"{envelope.driver_id}:{normalized_dedupe_key}"
+        # 同一驱动可服务多个账号/会话，平台消息 ID 不保证跨这些边界唯一。
+        route = envelope.route_key
+        message = envelope.session_message
+        chat_identity = None
+        if message is not None:
+            from src.common.utils.utils_session import SessionUtils
+
+            info = message.message_info
+            chat_identity = (
+                ("group", info.group_info.group_id, info.user_info.user_id)
+                if info.group_info is not None else (
+                    "private",
+                    SessionUtils.private_peer_id(info.user_info.user_id, route.account_id, info.additional_config),
+                    info.user_info.user_id,
+                )
+            )
+        return json.dumps(
+            [envelope.driver_id, route.platform, route.account_id, route.scope, chat_identity, normalized_dedupe_key],
+            ensure_ascii=True, separators=(",", ":"),
+        )
 
     @staticmethod
     def _validate_binding_against_driver(binding: RouteBinding, driver: PlatformIODriver) -> None:

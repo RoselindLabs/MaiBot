@@ -13,10 +13,32 @@ from src.maisaka.context.message_adapter import (
     clone_message_sequence,
     format_speaker_content,
 )
-from .messages import LLMContextMessage, ModelOutputContextMessage, ToolResultMediaMessage, ToolResultMessage
+from .messages import LLMContextMessage, ModelOutputContextMessage, SessionBackedMessage, ToolResultMediaMessage, ToolResultMessage
 
 if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
+
+
+def self_message_identity(message: "SessionMessage") -> tuple | None:
+    """只用完整的正式归属和平台消息 ID 识别自身消息，不按正文匹配。"""
+    if not message.account_id or message.message_info.user_info.user_id != message.account_id:
+        return None
+    if not message.platform or not message.session_id or not message.message_id or message.is_notify:
+        return None
+    group = message.message_info.group_info
+    return (
+        message.platform, message.account_id, message.scope, message.session_id,
+        group.group_id if group else None, message.message_info.user_info.user_id, message.message_id,
+    )
+
+
+def has_self_message(history: list[LLMContextMessage], message: "SessionMessage") -> bool:
+    """在已有单份历史中查找自身消息，涵盖发送与回传的两种到达顺序。"""
+    identity = self_message_identity(message)
+    return identity is not None and any(
+        isinstance(item, SessionBackedMessage) and self_message_identity(item.original_message) == identity
+        for item in reversed(history)
+    )
 
 
 
