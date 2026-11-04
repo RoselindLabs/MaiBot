@@ -11,7 +11,7 @@ from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.message_receive.message import SessionMessage
 from src.chat.utils.utils import is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
-from src.common.data_models.message_component_data_model import TextComponent
+from src.common.data_models.message_component_data_model import TextComponent, VoiceComponent
 from src.common.data_models.reply_generation_data_models import ReplyGenerationResult, build_reply_monitor_detail
 from src.common.logger import get_logger
 from src.config import config as config_module
@@ -730,6 +730,12 @@ async def execute_reply(
                     previous_sent_message=previous_sent_message,
                     first_reply_index=first_reply_index,
                 )
+                # quote_previous 只控制后续分段；纯语音首段也不能附加目标引用。
+                # 在最终逐段发送处限制，兼容旧抽样与补充器选定引用，并保留文字引用链。
+                if reply_sequence.components and all(
+                    isinstance(component, VoiceComponent) for component in reply_sequence.components
+                ):
+                    segment_set_quote = False
                 sent_message = await send_service._send_to_target_with_message(
                     message_sequence=reply_sequence,
                     stream_id=tool_ctx.runtime.session_id,

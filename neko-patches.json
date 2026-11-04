@@ -7,7 +7,7 @@
   "sources": {
     "src/common/utils/utils_image.py": "c036bad4e0125be9e5f98f824dfc3b27c173d176c7d5691eeabd909c7c2ea5eb",
     "src/maisaka/chat_loop_service.py": "8d74826dd0ea7e9394dc08886d1c9f16091a23f06e16bfb10e6b12d82672f079",
-    "src/maisaka/builtin_tool/reply.py": "37ebc3ecb3acf7e1d764b7377c301a6ca4b5628ab52c0e35485f76369a920f46",
+    "src/maisaka/builtin_tool/reply.py": "1fda3efa26f1f7093401a675cf89de25418a6f73f464d0d8601278b024479d58",
     "src/chat/replyer/maisaka_generator_base.py": "88aebb865253093fefc32c3887d16701e9bbeb5241b1b9ad6112e49f86431f78",
     "src/maisaka/context/compaction.py": "d51e690c8ba18a207494f807e871ba32f9c18c842531a6114be4f04576c16eda",
     "src/plugin_runtime/component_query.py": "e66ea8974146cde45295b21ea9e4523e6461dfd63fc3c0b5bfce03c6706dcbaa",
