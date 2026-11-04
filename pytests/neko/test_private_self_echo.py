@@ -25,8 +25,12 @@ def wire(*, sender="bot", peer="peer", account="bot", scope="one", group=None):
     if group is not None:
         info["group_info"] = {"group_id": group, "group_name": "Group"}
     return {
-        "message_id": "-123", "timestamp": "1791504000.0", "platform": "qq",
-        "account_id": account, "scope": scope, "message_info": info,
+        "message_id": "-123",
+        "timestamp": "1791504000.0",
+        "platform": "qq",
+        "account_id": account,
+        "scope": scope,
+        "message_info": info,
         "raw_message": [{"type": "text", "data": "same text"}],
     }
 
@@ -43,11 +47,16 @@ def context_message(**kwargs):
 
 def history_item(message):
     return SessionBackedMessage.from_session_message(
-        message, raw_message=message.raw_message, visible_text="same text", source_kind="guided_reply",
+        message,
+        raw_message=message.raw_message,
+        visible_text="same text",
+        source_kind="guided_reply",
     )
 
 
-@pytest.mark.parametrize("sender,peer,expected", [("bot", "peer", "peer"), ("peer", "bot", "peer"), ("bot", "bot", "bot")])
+@pytest.mark.parametrize(
+    "sender,peer,expected", [("bot", "peer", "peer"), ("peer", "bot", "peer"), ("bot", "bot", "bot")]
+)
 def test_policy_and_registration_agree_on_private_peer(sender, peer, expected):
     data = wire(sender=sender, peer=peer)
     assert PluginRunnerSupervisor._resolve_policy_target(data) == ("private", expected)
@@ -85,7 +94,8 @@ def test_self_echo_does_not_replace_peer_name_or_card():
 def test_auxiliary_metadata_cannot_change_policy_approved_peer():
     message = internal()
     PluginRunnerSupervisor._attach_inbound_route_metadata(
-        message, RouteKey("qq", "bot", "one"),
+        message,
+        RouteKey("qq", "bot", "one"),
         {"platform_io_target_user_id": "other", "platform_io_target_group_id": "group", "custom": "kept"},
     )
     assert message.message_info.additional_config == {"platform_io_target_user_id": "peer", "custom": "kept"}
@@ -93,38 +103,60 @@ def test_auxiliary_metadata_cannot_change_policy_approved_peer():
 
 def dedupe_key(**fields):
     message = internal(**fields)
-    return PlatformIOManager._build_inbound_dedupe_key(InboundMessageEnvelope(
-        route_key=RouteKey(message.platform, message.account_id, message.scope),
-        driver_id="same-driver", driver_kind=DriverKind.PLUGIN,
-        external_message_id=message.message_id, dedupe_key=message.message_id, session_message=message,
-    ))
+    return PlatformIOManager._build_inbound_dedupe_key(
+        InboundMessageEnvelope(
+            route_key=RouteKey(message.platform, message.account_id, message.scope),
+            driver_id="same-driver",
+            driver_kind=DriverKind.PLUGIN,
+            external_message_id=message.message_id,
+            dedupe_key=message.message_id,
+            session_message=message,
+        )
+    )
 
 
 def test_same_platform_id_in_different_routes_or_conversations_is_not_dropped():
     keys = [
-        dedupe_key(), dedupe_key(peer="other"), dedupe_key(scope="two"),
-        dedupe_key(account="bot2", sender="bot2"), dedupe_key(sender="peer"),
-        dedupe_key(group="group1"), dedupe_key(group="group2"),
+        dedupe_key(),
+        dedupe_key(peer="other"),
+        dedupe_key(scope="two"),
+        dedupe_key(account="bot2", sender="bot2"),
+        dedupe_key(sender="peer"),
+        dedupe_key(group="group1"),
+        dedupe_key(group="group2"),
     ]
     assert len(set(keys)) == len(keys)
     assert dedupe_key() == keys[0]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sender,group,expected_peer", [("bot", None, "peer"), ("peer", None, "peer"), ("bot", "group", "bot")])
-async def test_real_receive_chain_keeps_peer_before_hooks_and_after_registration(monkeypatch, sender, group, expected_peer):
+@pytest.mark.parametrize(
+    "sender,group,expected_peer", [("bot", None, "peer"), ("peer", None, "peer"), ("bot", "group", "bot")]
+)
+async def test_real_receive_chain_keeps_peer_before_hooks_and_after_registration(
+    monkeypatch, sender, group, expected_peer
+):
     from src.chat.message_receive import bot
     from src.files import service as files
 
     manager = ChatManager()
     manager._save_session = Mock()
-    peer_id = SessionUtils.calculate_session_id("qq", user_id=expected_peer, group_id=group, account_id="bot", scope="one")
+    peer_id = SessionUtils.calculate_session_id(
+        "qq", user_id=expected_peer, group_id=group, account_id="bot", scope="one"
+    )
     manager.sessions[peer_id] = BotChatSession(
-        peer_id, "qq", user_id=None if group else expected_peer, user_nickname="Peer", group_id=group,
-        account_id="bot", scope="one",
+        peer_id,
+        "qq",
+        user_id=None if group else expected_peer,
+        user_nickname="Peer",
+        group_id=group,
+        account_id="bot",
+        scope="one",
     )
     monkeypatch.setattr(bot, "chat_manager", manager)
-    monkeypatch.setattr(bot, "process_received_images_in_message", lambda _: SimpleNamespace(compressed_count=0, discarded_count=0))
+    monkeypatch.setattr(
+        bot, "process_received_images_in_message", lambda _: SimpleNamespace(compressed_count=0, discarded_count=0)
+    )
     monkeypatch.setattr(bot.MessageUtils, "check_ban_words", lambda _: (False, None))
     monkeypatch.setattr(bot.MessageUtils, "check_ban_regex", lambda _: (False, None))
     file_ingest = AsyncMock()
@@ -162,14 +194,20 @@ async def test_file_source_uses_conversation_peer_not_self_author(monkeypatch):
     import src.platform_io
 
     descriptor = SimpleNamespace(plugin_id="adapter", account_id="bot", scope="one", platform="qq")
-    monkeypatch.setattr(src.platform_io, "get_platform_io_manager", lambda: SimpleNamespace(
-        driver_registry=SimpleNamespace(get=lambda _: SimpleNamespace(descriptor=descriptor)),
-    ))
+    monkeypatch.setattr(
+        src.platform_io,
+        "get_platform_io_manager",
+        lambda: SimpleNamespace(
+            driver_registry=SimpleNamespace(get=lambda _: SimpleNamespace(descriptor=descriptor)),
+        ),
+    )
     receive = AsyncMock()
     monkeypatch.setattr(chat_bot, "receive_message", receive)
     message = internal()
     envelope = InboundMessageEnvelope(
-        route_key=RouteKey("qq", "bot", "one"), driver_id="adapter:gateway", driver_kind=DriverKind.PLUGIN,
+        route_key=RouteKey("qq", "bot", "one"),
+        driver_id="adapter:gateway",
+        driver_kind=DriverKind.PLUGIN,
         session_message=message,
     )
     await PluginRuntimeManager._dispatch_platform_inbound(None, envelope)
@@ -182,8 +220,12 @@ def test_context_identity_never_merges_other_peers_accounts_or_message_ids():
     message = context_message()
     history = [history_item(message)]
     assert has_self_message(history, context_message())
-    for other in [context_message(peer="other"), context_message(scope="other"),
-                  context_message(account="bot2", sender="bot2"), context_message(sender="peer")]:
+    for other in [
+        context_message(peer="other"),
+        context_message(scope="other"),
+        context_message(account="bot2", sender="bot2"),
+        context_message(sender="peer"),
+    ]:
         assert not has_self_message(history, other)
     other = context_message()
     other.message_id = "-124"
@@ -255,7 +297,9 @@ async def test_restart_restore_projects_one_self_message_without_changing_databa
     runtime._get_context_restore_limit = lambda: 50
     runtime._quote_counter = SimpleNamespace(record=Mock())
     runtime._resolve_restored_message_source_kind = lambda _: "guided_reply"
-    runtime._reasoning_engine = SimpleNamespace(_build_history_message=AsyncMock(side_effect=lambda message, **_: history_item(message)))
+    runtime._reasoning_engine = SimpleNamespace(
+        _build_history_message=AsyncMock(side_effect=lambda message, **_: history_item(message))
+    )
     runtime._build_context_restore_reference_message = lambda *_, **__: None
     runtime.log_prefix = "synthetic"
     await runtime._restore_recent_context_from_db()
