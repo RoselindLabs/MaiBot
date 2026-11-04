@@ -15,7 +15,7 @@
     "src/llm_models/gemini_failure_diagnostics.py": "c92f7b271f33480de0a4250499bf99658b52907f6467b09259aceb39118e7ec7",
     "src/llm_models/request_snapshot.py": "736643ce3e03be99ef8d8acddf5019961ba685fde1be573e3fef3768cd9a1945",
     "src/llm_models/exceptions.py": "e24ef2f407e004e8b7e9cb7208753b7263d9a702a4ada0e80a9fb0f1ac816a4e",
-    "src/llm_models/model_client/gemini_client.py": "bba1e4634ef8ee16221a197bb8087c459ac77a70d827ea37277bf8ae3a216914",
+    "src/llm_models/model_client/gemini_client.py": "3d5ec3e4c356db0800dd14ed08d7578b9ddbc9a97be2a839293c142743098990",
     "src/llm_models/utils_model.py": "0449c37e617b57122f8bdd0d3d2a21d0967aadb5ffd4d91a600b5aa4b82b20d3",
     "src/plugin_runtime/transport/base.py": "18e26ef8129e5d0207727724f23b77e5635818e8901d49043384180bb886118d",
     "src/maisaka/context/internal_pressure.py": "cfd048a02d77cdc72da451c0e6b75d14c9e4e379444f628a523276a49f5c4adf",

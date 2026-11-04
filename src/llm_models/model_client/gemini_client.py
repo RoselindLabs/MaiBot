@@ -688,6 +688,34 @@ async def _default_stream_response_handler(
         raise
 
 
+def _normal_reply_shape(response: GenerateContentResponse, parsed: APIResponse) -> Dict[str, Any] | None:
+    """异常形状只记录数量/长度/相等关系，不记录正文、签名、参数或可逆摘要。"""
+    candidates = _get_candidates(response)
+    content = parsed.content or ""
+
+    def doubled(value: str) -> bool:
+        return len(value) >= 8 and len(value) % 2 == 0 and value[:len(value) // 2] == value[len(value) // 2:]
+
+    if len(candidates) <= 1 and not doubled(content):
+        return None
+    first = candidates[0].content if candidates else None
+    parts = first.parts if first and first.parts else []
+    visible = [part.text for part in parts if part.text and not part.thought]
+    first_text = "".join(visible).strip()
+    return {
+        "candidate_count": len(candidates),
+        "first_part_count": len(parts),
+        "first_visible_part_count": len(visible),
+        "first_visible_part_lengths": [len(value) for value in visible[:16]],
+        "part_lengths_truncated": len(visible) > 16,
+        "first_text_chars": len(first_text),
+        "first_text_exact_double": doubled(first_text),
+        "parsed_chars": len(content),
+        "parsed_exact_double": doubled(content),
+        "parsed_matches_first": content == first_text,
+    }
+
+
 def _default_normal_response_parser(
     response: GenerateContentResponse,
     *,
@@ -704,10 +732,14 @@ def _default_normal_response_parser(
     Raises:
         EmptyResponseException: 响应中既无正文也无工具调用且无思考内容时抛出。
     """
+    # candidates 是备选答案，不是连续分片；与 SDK response.text 一致只消费第一项。
+    # 同步限定正文、思考和工具，避免不同候选的工具被一并执行；原响应留给诊断。
+    candidates = _get_candidates(response)
+    selected = response.model_copy(update={"candidates": candidates[:1]}) if len(candidates) > 1 else response
     visible_parts: List[str] = []
     reasoning_parts: List[str] = []
 
-    for candidate in _get_candidates(response):
+    for candidate in _get_candidates(selected):
         content = getattr(candidate, "content", None)
         parts = getattr(content, "parts", None) or []
         for part in parts:
@@ -719,12 +751,12 @@ def _default_normal_response_parser(
             else:
                 visible_parts.append(part_text)
 
-    content = "".join(visible_parts).strip() or getattr(response, "text", None)
+    content = "".join(visible_parts).strip() or getattr(selected, "text", None)
     reasoning_content = "".join(reasoning_parts).strip()
-    tool_calls = _collect_function_calls(response)
+    tool_calls = _collect_function_calls(selected)
 
     usage_record = _extract_usage_record(response)
-    _warn_if_max_tokens_truncated(response, content, tool_calls or None)
+    _warn_if_max_tokens_truncated(selected, content, tool_calls or None)
     if not content and not tool_calls and not reasoning_content:
         raise EmptyResponseException(response, "响应中既无文本内容也无工具调用")
     context_tool_calls = [
@@ -1106,6 +1138,17 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                 )
                 _raise_if_prohibited_content(raw_response)
                 response, usage_record = response_parser(raw_response)
+                if request.trace_context and request.trace_context.request_type == "maisaka.replyer":
+                    try:
+                        shape = _normal_reply_shape(raw_response, response)
+                        if shape is not None:
+                            logger.info(
+                                "Gemini 回复结构: " + json.dumps(
+                                    {"request_id": request.trace_context.request_id, **shape}, ensure_ascii=True
+                                )
+                            )
+                    except Exception:
+                        logger.debug("Gemini 回复结构诊断不可用；保留原解析结果")
 
             response.wire_protocol = "gemini_generate_content"
             response.request_wire_payload = {

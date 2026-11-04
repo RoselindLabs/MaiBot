@@ -14,6 +14,96 @@ from src.llm_models.exceptions import ContentBlockedError, EmptyResponseExceptio
 from src.llm_models.gemini_failure_diagnostics import gemini_failure_diagnostic
 
 
+@pytest.mark.parametrize("alternative", ["甲句，乙句", "另一份完整答案"])
+def test_normal_gemini_selects_one_candidate_without_mixing_text_reasoning_or_tools(alternative):
+    from src.llm_models.model_client.gemini_client import _default_normal_response_parser
+
+    raw = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    parts=[
+                        types.Part(text="first reasoning", thought=True),
+                        types.Part(text="甲句，"),
+                        types.Part(text="乙句"),
+                        types.Part(function_call=types.FunctionCall(name="first_tool", args={"n": 1})),
+                    ]
+                )
+            ),
+            types.Candidate(
+                content=types.Content(
+                    parts=[
+                        types.Part(text="other reasoning", thought=True),
+                        types.Part(text=alternative),
+                        types.Part(function_call=types.FunctionCall(name="other_tool", args={"n": 2})),
+                    ]
+                )
+            ),
+        ],
+        usage_metadata=types.GenerateContentResponseUsageMetadata(prompt_token_count=10, candidates_token_count=8),
+    )
+    before = raw.model_dump()
+    parsed, usage = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    assert parsed.content == raw.text == "甲句，乙句"
+    assert parsed.reasoning_content == "first reasoning"
+    assert [call.func_name for call in parsed.tool_calls] == ["first_tool"]
+    assert parsed.raw_data is raw and raw.model_dump() == before
+    assert usage is not None
+
+
+def test_normal_gemini_preserves_deliberate_repetition_inside_first_candidate():
+    from src.llm_models.model_client.gemini_client import _default_normal_response_parser
+
+    part = types.Part(text="请重复这句话。请重复这句话。")
+    raw = types.GenerateContentResponse(candidates=[types.Candidate(content=types.Content(parts=[part]))])
+    parsed, _ = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    assert parsed.content == raw.text == "请重复这句话。请重复这句话。"
+
+
+def test_normal_gemini_does_not_replace_empty_primary_with_an_alternative():
+    from src.llm_models.model_client.gemini_client import _default_normal_response_parser
+
+    raw = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(content=types.Content(parts=[])),
+            types.Candidate(content=types.Content(parts=[types.Part(text="alternative")])),
+        ]
+    )
+    with pytest.raises(EmptyResponseException):
+        _default_normal_response_parser(raw, logical_turn_id="synthetic")
+
+
+def test_reply_shape_distinguishes_candidate_merge_from_repeated_raw_text_without_content():
+    from src.llm_models.model_client.gemini_client import _default_normal_response_parser, _normal_reply_shape
+
+    secret = "private original reply"
+    raw = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(content=types.Content(parts=[types.Part(text=secret)])),
+            types.Candidate(content=types.Content(parts=[types.Part(text=secret)])),
+        ]
+    )
+    parsed, _ = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    shape = _normal_reply_shape(raw, parsed)
+    assert shape["candidate_count"] == 2 and shape["parsed_matches_first"]
+    assert not shape["parsed_exact_double"] and not shape["first_text_exact_double"]
+    assert secret not in json.dumps(shape)
+    part = types.Part(text=secret * 2)
+    raw = types.GenerateContentResponse(candidates=[types.Candidate(content=types.Content(parts=[part]))])
+    parsed, _ = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    shape = _normal_reply_shape(raw, parsed)
+    assert shape["candidate_count"] == 1 and shape["first_text_exact_double"] and shape["parsed_exact_double"]
+    assert parsed.content == secret * 2
+    assert secret not in json.dumps(shape)
+    raw.candidates[0].content.parts = [types.Part(text=secret)] * 20
+    parsed, _ = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    shape = _normal_reply_shape(raw, parsed)
+    assert len(shape["first_visible_part_lengths"]) == 16 and shape["part_lengths_truncated"]
+    raw.candidates[0].content.parts = [types.Part(text=secret)]
+    parsed, _ = _default_normal_response_parser(raw, logical_turn_id="synthetic")
+    assert _normal_reply_shape(raw, parsed) is None
+
+
 def request():
     return {
         "request_kind": "response",
@@ -259,6 +349,39 @@ def blocked_request_harness(snapshot_store, monkeypatch):
         items=items,
         request_type=llm.RequestType.RESPONSE,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("diagnostic_fails", [False, True])
+async def test_reply_shape_logging_is_single_request_and_cannot_change_response(
+    blocked_request_harness, monkeypatch, diagnostic_fails
+):
+    from src.llm_models.model_client import gemini_client
+
+    h = blocked_request_harness
+    h.orchestrator.request_type = "maisaka.replyer"
+    secret = "synthetic private reply"
+    h.transport.generate_content.return_value = types.GenerateContentResponse(
+        candidates=[types.Candidate(content=types.Content(parts=[types.Part(text=secret)])) for _ in range(2)]
+    )
+    info = Mock()
+    monkeypatch.setattr(gemini_client.logger, "info", info)
+    if diagnostic_fails:
+        monkeypatch.setattr(gemini_client, "_normal_reply_shape", Mock(side_effect=ValueError("private error")))
+    result = await h.orchestrator._execute_request(
+        h.request_type, context_factory=lambda client: h.items, force_stream_mode=False
+    )
+    assert result.api_response.content == secret
+    h.transport.generate_content.assert_awaited_once()
+    h.retry.assert_not_called()
+    if diagnostic_fails:
+        info.assert_not_called()
+    else:
+        info.assert_called_once()
+        line = info.call_args.args[0]
+        assert secret not in line and "never-print-me" not in line
+        payload = json.loads(line.split(": ", 1)[1])
+        assert payload["candidate_count"] == 2 and payload["parsed_matches_first"] and payload["request_id"]
 
 
 @pytest.mark.asyncio
