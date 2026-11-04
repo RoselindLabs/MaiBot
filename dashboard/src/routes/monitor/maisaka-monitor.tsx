@@ -161,6 +161,19 @@ function isMessageTimelineEntry(entry?: TimelineEntry) {
   return entry?.type === 'message.ingested' || entry?.type === 'message.sent'
 }
 
+/** 只配对同一 QQ 群会话里的发送记录与自身回传，不按正文或时间猜测。 */
+function getSelfEchoIdentity(entry: TimelineEntry): string | null {
+  if (!isMessageTimelineEntry(entry)) return null
+  const data = entry.data as MessageIngestedEvent | MessageSentEvent
+  if (data.platform !== 'qq') return null
+  const identity = [entry.sessionId, data.session_id, data.platform, data.group_id, data.user_id, data.message_id]
+  if (entry.sessionId !== data.session_id || identity.some(value => typeof value !== 'string' || !value.trim())) {
+    return null
+  }
+  // 正式 session 已隔离账号/scope；发送方 user_id 再限定为这条出站的实际机器人账号。
+  return JSON.stringify(identity)
+}
+
 function isWaitTool(toolName?: string) {
   return (toolName ?? '').trim().toLowerCase() === 'wait'
 }
@@ -2603,8 +2616,20 @@ const MonitorTimeline = memo(function MonitorTimeline({
   const visibleTimelineEntries = useMemo(() => {
     const noReplyTimingGateCycles = new Set<string>()
     const visibleEntries: TimelineEntry[] = []
+    const sentMessageIdentities = new Set<string>()
+    for (const entry of timeline) {
+      if (entry.type !== 'message.sent') continue
+      const identity = getSelfEchoIdentity(entry)
+      if (identity) sentMessageIdentities.add(identity)
+    }
 
     for (const entry of timeline) {
+      // 先收集出站身份，兼容回传先到、重连和跨历史页乱序；保留原出站的正文/引用/媒体。
+      // 只影响气泡投影，原事件、游标、模型上下文和数据库均保留。
+      if (entry.type === 'message.ingested') {
+        const identity = getSelfEchoIdentity(entry)
+        if (identity && sentMessageIdentities.has(identity)) continue
+      }
       // 先排除常规提示行，避免虚拟列表为不显示的分隔提示保留空白高度。
       if (entry.type === 'flow.step') {
         const data = entry.data as FlowStepEvent
