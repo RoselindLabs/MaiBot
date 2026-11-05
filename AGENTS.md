@@ -3,6 +3,8 @@
 - This is a thin GPL-3.0 fork. Preserve upstream history, attribution and licenses.
 - Read `NEKO_FORK.md` and `neko-patches.json` first. `main` is the upstream mirror;
   `neko/main` is the maintenance default. Never discard fork commits to sync.
+- Before merging upstream, review every stable patch ID in `NEKO_FORK.md`'s upgrade ledger.
+  Hashes detect drift; they do not replace behavior review. Record keep/port/retire evidence.
 - Source creation/push is not production migration or restart authorization.
 - Do not import runtime config/data/plugins, credentials, private prompts or chat history.
 - Preserve initial byte-audit history. When integrating a reviewed upstream tag, retain

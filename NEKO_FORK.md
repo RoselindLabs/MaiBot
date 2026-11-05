@@ -6,15 +6,15 @@
 首个维护基线 1.3.15/062d45cf 的历史与初始补丁提交保留。
 软件包仍使用上游版本号，具体修订以 **upstream SHA + fork SHA** 识别；未向官方 PyPI 包名发布。
 
-## 当前状态与阅读入口（2026-11-04）
+## 当前源码与阅读入口（2026-11-05）
 
 | 边界 | 当前依据 |
 | --- | --- |
 | 上游与依赖 | MaiBot1.3.19／SDK2.20.0／Dashboard1.9.13，固定uv.lock，DB46 |
-| 本次修复源码 | 私聊自身回传业务`ce8cc6f55`，测试格式收尾`e98ce4592`；[双平台CI41843275216](https://github.com/znzsofficial/MaiBot/actions/runs/41843275216)通过 |
-| 来源登记 | `neko-patches.json`纳管27源＋锁28项；Dashboard从同一部署提交构建并单独登记制品 |
+| 维护源码 | `neko/main`；用`git rev-parse HEAD`取得实际修订，最近子代理交接业务提交`019314848` |
+| 来源登记 | `neko-patches.json`纳管29源＋锁30项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
 | 配套适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
-| 发布状态 | 维护实例已固定部署`1f1c41d0e0dcd00a4352ccdcb6c2c2c9c2a004a5`，配套适配器`b44d8744b29da1f62c65fa27987800b2f08ba941`及同提交Dashboard；62.81秒就绪 |
+| 发布状态 | 本仓只声明源码行为；实例实际部署SHA、待发布差异与备份以私有运维登记为准，不用本文旧发布快照推断线上状态 |
 
 本文件维护行为合同、验证和升级边界；实例的端口、PID、运行配置、备份路径及详细日期验收
 留在私有运维记录。下文旧提交是差异首次交付证据，不是多个“当前版本”。
@@ -23,14 +23,44 @@
 
 ## 维护差异
 
-### 子代理检索与证据交接（2026-11-05，源码待发布）
+### 升级补丁台账（稳定ID）
+
+以下条目均为当前维护线保留项，**未声明已被上游等价吸收**。表中路径相对仓库根；精确源文件集合/摘要以
+`neko-patches.json`为准。ID跟随行为而非行号或版本；文件重构时更新入口，不重新编号。
+源码中只在容易与上游混淆的局部使用`NEKO: <ID>`短注释，不用整文件BEGIN/END包围或重复整段上游代码。
+
+| ID | 行为与合并入口 | 必须保留的验证 | 可撤销条件 |
+| --- | --- | --- | --- |
+| N01 identity-echo | 正式会话归属、自身回传去重：`src/chat/message_receive/{bot,chat_manager}.py`、`src/common/utils/utils_session.py`、`src/maisaka/{runtime,context/history}.py`、`src/platform_io/manager.py`、`src/plugin_runtime/{integration,host/supervisor}.py` | `pytests/neko/test_private_self_echo.py` | 上游完整覆盖平台/账号/scope/对端身份及回传先后顺序，配套适配器通过 |
+| N02 reply-receipt | 精确回复回执和纯语音引用：`src/maisaka/chat_loop_service.py`、`src/maisaka/builtin_tool/reply.py` | `pytests/neko/test_reply_contracts.py`及固定TTS消费者 | 上游提供等价回执、语音不附引用，消费者同步迁移 |
+| N03 expression-budget | 表达选择整段20秒协作预算：`src/chat/replyer/maisaka_generator_base.py` | `pytests/maisaka/test_replyer_expression_selection.py` | 上游覆盖前置步骤与取消语义；单模型hard_timeout不等价 |
+| N04 context-pressure | 临时素材隔离、私聊内部压力回收、单份摘要：`src/maisaka/context/{compaction,internal_pressure}.py`、`src/maisaka/reasoning_engine.py` | `pytests/neko/test_life_compaction.py`、`test_internal_history_pressure.py`及`pytests/maisaka/test_context_compaction.py` | 上游保真实IM/引用/闭合工具批次、失败不提交与跨聊天隔离 |
+| N05 trusted-tools | 显式opt-in可信工具身份：`src/plugin_runtime/component_query.py` | `pytests/neko/test_tool_context.py`、`test_plugin_bridge.py` | 上游提供同等身份边界且Files消费者迁移完成 |
+| N06 update-source | uv来源错误格式兼容：`src/common/self_update.py` | `pytests/startup_test/test_self_update_dependency_sources.py` | 上游支持新旧错误格式且仍精确绑定索引 |
+| N07 gemini-diagnostics | 有界失败诊断与快照：`src/llm_models/{gemini_failure_diagnostics,request_snapshot}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游保脱敏、有界记录和原失败终态 |
+| N08 gemini-fallback | 首候选解析、结构化拦截、精确Grok备用：`src/llm_models/{exceptions,utils_model,model_client/gemini_client}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游同时满足候选解析、未输出/未锁模型、候选交集与有限重试 |
+| N09 rpc-media | 双端32MiB、协商媒体表/同图去重：`src/plugin_runtime/{transport/base,protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
+| N10 gif-frames | 浮点帧差与单帧边界：`src/common/utils/utils_image.py` | `pytests/neko/test_gif_static_image.py` | 上游覆盖uint8溢出、max_frames及阈值边界 |
+| N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离：`src/maisaka/focus/group_runtime.py` | `pytests/maisaka/test_focus_group_runtime.py` | 上游保新消息/主动任务唤醒、无自动重试循环、unknown不重放 |
+| N12 subagent-evidence | 子代理来源与核实层级交接：`src/maisaka/builtin_tool/subagent.py` | 子代理提示人工核对、宿主契约；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
+| N13 dashboard-echo | 群聊自身回传展示合并：`dashboard/src/routes/monitor/maisaka-monitor.tsx` | 对应监控合成样本、前端类型/构建、实际静态hash | 上游按正式消息身份合并，缺身份和无出站对应仍保留 |
+| N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
+
+**每次正式tag合并的核对记录**：在集成提交说明中逐ID记`keep / port / retire`及上游SHA、差异入口和验证结果。
+只在等价证据成立后retire；同时移除对应维护注释、更新来源hash/集合及行为文档，保历史提交。
+一个文件可能承载多个ID，不能整文件选择ours/theirs。测试通过不代替确认上游是否改变了用户策略。
+
+**三个版本分开看**：上游基线来自清单`upstream_commit`；维护HEAD来自Git；部署SHA来自实例来源登记。
+部署后按`deployed..HEAD`列实际未发布差异，纯文档前移不列为待上线业务。本文不写自指HEAD或假定推送即部署。
+
+### N12 子代理检索与证据交接（2026-11-05）
 
 子代理提示补充：已有来源优先读取核实、重复搜索无新证据及时收尾、找图优先预览配图而非猜文件名；
 最终网络结论保关键URL，区分搜索摘录/已读正文/已预览图片，不把不同格式当不同构图。
 只调整子代理工作提示，模型、人设、权限、轮数和工具执行保持；提示不保证模型必然遵从。
 新增`src/maisaka/builtin_tool/subagent.py`来源登记，当前29源＋锁30项；上线以实例发布记录为准。
 
-### Focus 请求失败恢复（2026-11-05，源码待发布）
+### N11 Focus 请求失败恢复（2026-11-05）
 
 - 共享 Planner 在请求边界遇到内容拦截、HTTP/网络、超时、空响应或解析错误时，保存未判断输入，
   明确显示“请求失败”，等待失败后新消息或新的插件主动任务再继续；不立即循环重试旧请求。
@@ -38,7 +68,7 @@
   原unknown工具闭合/禁止重放保持；失败后收到新的Proactive任务可沿宿主Focus入口唤醒。
 - 内存已无正式会话的成员不进入工具路由或参考构造，避免有效性检查抛异常拖停整组；不借旧成员身份授权。
 - 工具准备和聊天参考构造有独立准备阶段；不更改模型超时、Focus策略或压缩失败策略。
-- 来源清单增加`src/maisaka/focus/group_runtime.py`，当前源码登记为28源＋锁29项；上方实例部署记录不代表此修复已发布。
+- 来源清单当批增加`src/maisaka/focus/group_runtime.py`后为28源＋锁29项；当前总数见顶部来源登记，实际部署以实例发布记录为准。
 
 ### 私聊自身回传与相邻归属修复（2026-11-04）
 
@@ -112,14 +142,14 @@
     解析与首候选相等关系；不记正文/签名/参数/文本hash、不增加请求。诊断失败保留原结果。
     两个同文候选的双份结果已用真实SDK离线复现并修正；现场成功快照没有原始候选结构，
     尚不能确认这就是用户所报重复的根因。现已上线且用户反馈正常，本轮交付结束；若以后复现才查对应自然诊断，不主动开启忽略/重放收费请求补证明。
-15. **明确内容拦截止损及定向 Grok 备用**（原止损9441aa20a，2026-11-05扩展待发布）：仅Gemini结构化
+15. **明确内容拦截止损及定向 Grok 备用**（原止损9441aa20a，2026-11-05扩展）：仅Gemini结构化
     `prompt_feedback.block_reason == "PROHIBITED_CONTENT"`触发独立ContentBlockedError；原模型不重试或惩罚可用性。
     未锁定单一模型且尚未交出流式块时，按任务列表顺序尝试未失败的候选，实际API `model_identifier`
     必须精确为 `grok-4.5`、`grok-4.6` 或 `grok-4.7`，不按显示名或子串猜测，不新增任务候选。
     进入此路径后只走上述交集，备用失败保原有限重试，不再回其它模型；无可用候选则结束。
     已交出任何流式块（包括元数据）后再拦截则直接结束，避免自定义解析器副作用或两模型输出混合。
     保原上下文工厂按目标客户端重建、失败快照/终态及有界元数据，不删图替词；不新增前端/配置字段。
-    其它空响应／网络／超时／取消保持原行为。当前线上仍为顶部部署提交，源码准备不代表已重启发布。
+    其它空响应／网络／超时／取消保持原行为。实际部署以实例来源登记为准。
 
 [neko-patches.json](neko-patches.json) 是重新构造的公开差异清单，只有上游标识、包版本及源码哈希，
 不包含任何实例登记、运行路径、账号、Key 或配置。1.3.15的初始字节审计留在历史；
@@ -129,7 +159,7 @@
 1.3.19初次集成时修正uv错误解析，登记为六源＋锁七项；后续同版Gemini失败诊断/RPC32
 补修当时扩为九源＋锁十项；后续内部历史压力与重复媒体运输扩为十五源＋锁十六项；
 后续GIF修复扩为十六源＋锁十七项，内容止损扩为十九源＋锁二十项；本次私聊链路补修
-扩为**二十七源＋锁二十八项**。依赖及既有其他维护行为保持。运行固定提交与发布验收以实例登记为准，
+当批扩为**二十七源＋锁二十八项**，后续N11/N12扩为当前29源＋锁30项。依赖及既有其他维护行为保持。运行固定提交与发布验收以实例登记为准，
 文档提交前移不构成待补部署。
 此前1.3.18/f636d1092、SDK2.19.0/Dashboard1.9.12，以及1.3.17/789bac67e、
 1.3.16/e7cc25bdf的线上记录留作历史，不覆盖当前1.3.19/SDK2.20.0。
@@ -259,7 +289,7 @@ Life已退役且仓库改为私有，2026-10-28用户批准解除公共CI的私�
 
 ## 发布与迁移边界
 
-**当前运行基线**：维护实例1.3.19，固定`1f1c41d0e0dcd00a4352ccdcb6c2c2c9c2a004a5`，
+**历史发布快照（2026-11-04，非当前运行状态）**：维护实例1.3.19，当批固定`1f1c41d0e0dcd00a4352ccdcb6c2c2c9c2a004a5`，
 SDK2.20.0／同提交Dashboard1.9.13／DB46／28源锁登记。配套适配器维护SHA为`b44d874`，
 先经标准上传器热加载，再切Host和前端；保持原1.1.13版本、插件ID、目录与配置。
 

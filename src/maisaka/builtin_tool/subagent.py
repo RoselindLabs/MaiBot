@@ -66,6 +66,7 @@ SUBAGENT_FORBIDDEN_TOOL_NAMES = frozenset(
     }
 )
 
+# NEKO: N12 subagent-evidence — retrieval/attribution additions; see NEKO_FORK.md.
 SUBAGENT_SYSTEM_PROMPT = (
     "你是一个被派发任务的子代理。派发者看不到你的工作过程，只会收到你最后一条不带工具调用的文字。\n"
     "工作方式：\n"
