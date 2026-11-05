@@ -166,11 +166,17 @@ async def _check_stream_content_blocks(
     interrupt_flag: asyncio.Event | None,
 ) -> AsyncIterator[GenerateContentResponse]:
     """在交给默认或自定义解析器前检查每块，保留首块的拦截证据。"""
+    stream_started = False
     try:
         async for chunk in response_stream:
             if interrupt_flag and interrupt_flag.is_set():
                 raise ReqAbortException("请求被外部信号中断")
-            _raise_if_prohibited_content(chunk)
+            try:
+                _raise_if_prohibited_content(chunk)
+            except ContentBlockedError as exc:
+                exc.stream_started = stream_started
+                raise
+            stream_started = True
             yield chunk
     finally:
         if isinstance(response_stream, AsyncGenerator):

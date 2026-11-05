@@ -342,6 +342,8 @@ def blocked_request_harness(snapshot_store, monkeypatch):
     items = [ContextItemBuilder().add_text_part("synthetic input").build()]
     return SimpleNamespace(
         orchestrator=orchestrator,
+        models=models,
+        task=task,
         transport=transport,
         registry=registry,
         retry=retry,
@@ -543,3 +545,151 @@ async def test_snapshot_storage_failure_does_not_enable_retries(blocked_request_
     assert h.transport.generate_content.await_count == h.registry.await_count == 1
     h.retry.assert_not_called()
     h.error.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identifier", ["grok-4.5", "grok-4.6", "grok-4.7"])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_prohibited_content_uses_only_configured_grok(blocked_request_harness, identifier, stream):
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = identifier
+    before = deepcopy(h.items)
+    h.transport.generate_content.side_effect = [blocked_response(), success_response()]
+
+    async def chunks(response):
+        yield response
+
+    h.transport.generate_content_stream.side_effect = (
+        [chunks(blocked_response()), chunks(success_response())] if stream else None
+    )
+    result = await h.orchestrator._execute_request(
+        h.request_type, context_factory=lambda client: h.items, force_stream_mode=stream
+    )
+    assert result.model_info.name == "backup"
+    assert h.items == before
+    assert h.registry.await_count == 2
+    assert h.orchestrator.model_usage["primary"] == (0, 0, 0)
+    h.retry.assert_not_called()
+    h.error.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("identifier", ["grok-4.70", "my-grok-4.7", "grok-4.7-preview", "gemini-2.5-flash"])
+async def test_content_fallback_does_not_guess_model_identifiers(blocked_request_harness, identifier):
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = identifier
+    h.transport.generate_content.return_value = blocked_response()
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.registry.await_count == 1
+    h.retry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_content_fallback_respects_explicit_model(blocked_request_harness):
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = "grok-4.7"
+    h.transport.generate_content.return_value = blocked_response()
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(
+            h.request_type, context_factory=lambda client: h.items, model_name="primary"
+        )
+    assert h.registry.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["blocked", "empty", "cancel"])
+async def test_content_fallback_never_returns_to_other_models(blocked_request_harness, failure):
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = "grok-4.7"
+    h.models["other"] = h.models["primary"].model_copy(update={"name": "other"})
+    h.task.model_list.insert(1, "other")
+    tail = {
+        "blocked": [blocked_response()],
+        "empty": [types.GenerateContentResponse()] * 4,
+        "cancel": [asyncio.CancelledError()],
+    }[failure]
+    h.transport.generate_content.side_effect = [blocked_response(), *tail]
+    expected = {"blocked": ContentBlockedError, "empty": EmptyResponseException, "cancel": asyncio.CancelledError}[
+        failure
+    ]
+    with pytest.raises(expected):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.registry.await_count == 2
+    assert h.orchestrator.model_usage["primary"] == (0, 0, 0)
+    assert h.orchestrator.model_usage["backup"][2] == 0
+    assert h.orchestrator.model_usage["other"] == (0, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_late_stream_block_cannot_mix_model_outputs(blocked_request_harness):
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = "grok-4.7"
+    received = []
+
+    async def chunks():
+        yield success_response()
+        yield blocked_response()
+
+    async def handler(source, interrupt):
+        async for chunk in source:
+            received.append(chunk)
+
+    h.transport.generate_content_stream.return_value = chunks()
+    with pytest.raises(ContentBlockedError) as captured:
+        await h.orchestrator._execute_request(
+            h.request_type,
+            context_factory=lambda client: h.items,
+            force_stream_mode=True,
+            stream_response_handler=handler,
+        )
+    assert captured.value.stream_started
+    assert len(received) == 1
+    assert h.registry.await_count == 1
+    h.retry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_grok_outside_task_is_not_added_to_candidates(blocked_request_harness):
+    h = blocked_request_harness
+    h.models["unlisted"] = h.models["backup"].model_copy(update={"name": "unlisted", "model_identifier": "grok-4.7"})
+    h.transport.generate_content.return_value = blocked_response()
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.registry.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_previously_failed_grok_is_not_replayed_after_block(blocked_request_harness):
+    h = blocked_request_harness
+    h.models["primary"].model_identifier = "grok-4.7"
+    h.transport.generate_content.side_effect = [types.GenerateContentResponse()] * 4 + [blocked_response()]
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.registry.await_count == 2
+    assert h.transport.generate_content.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_grok_switch_rebuilds_request_for_target_client(blocked_request_harness):
+    from src.llm_models.model_client.base_client import APIResponse
+
+    h = blocked_request_harness
+    h.models["backup"].model_identifier = "grok-4.7"
+    target = Mock()
+    response = APIResponse()
+    target.get_response = AsyncMock(return_value=response)
+    primary = h.registry.return_value
+    h.registry.side_effect = [primary, target]
+    h.transport.generate_content.return_value = blocked_response()
+    factories = []
+
+    def context_factory(client, model):
+        factories.append((client, model.name))
+        return h.items
+
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=context_factory)
+    assert result.api_response is response
+    assert factories == [(primary, "primary"), (target, "backup")]
+    target.get_response.assert_awaited_once()
+    h.error.assert_not_called()

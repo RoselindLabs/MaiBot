@@ -1381,6 +1381,7 @@ class LLMOrchestrator:
         max_attempts = 1 if str(model_name or "").strip() else len(self.model_for_task.model_list)
         last_exception: Optional[Exception] = None
         last_model_name = ""
+        content_block_fallback = False
         trace_context = RequestTraceContext(
             task_name=self.task_name,
             request_type=self.request_type,
@@ -1388,9 +1389,24 @@ class LLMOrchestrator:
         )
 
         for model_index in range(max_attempts):
+            selected_override = model_name
+            if content_block_fallback:
+                # Only exact API identifiers in this task are eligible, never display-name guesses.
+                self._refresh_task_config()
+                selected_override = next(
+                    (
+                        name for name in self.model_for_task.model_list
+                        if name not in failed_models_this_request
+                        and TempMethodsLLMUtils.get_model_info_by_name(name).model_identifier
+                        in {"grok-4.5", "grok-4.6", "grok-4.7"}
+                    ),
+                    None,
+                )
+                if selected_override is None:
+                    break
             model_info, api_provider, client = await self._select_model(
                 exclude_models=failed_models_this_request,
-                model_name=model_name,
+                model_name=selected_override,
             )
             if request_type == RequestType.RESPONSE and force_stream_mode:
                 # 请求级副本也覆盖重试及候选模型切换，避免改变其他任务的流式设置。
@@ -1460,8 +1476,17 @@ class LLMOrchestrator:
                 raise e
 
             except ContentBlockedError as e:
-                # 内容拦截不是模型可用性故障；释放在途占用，不惩罚模型、不切备用。
+                # 内容拦截不惩罚可用性；仅未输出、未锁定模型的请求可定向切 Grok。
                 self._adjust_model_usage(model_info.name, usage_penalty_delta=-1)
+                if not str(model_name or "").strip() and not e.stream_started:
+                    failed_models_this_request.add(model_info.name)
+                    last_exception = e
+                    content_block_fallback = True
+                    await asyncio.to_thread(update_failed_request_attempt, e, status="switching_model")
+                    logger.warning(
+                        f"模型 '{model_info.name}' 返回 PROHIBITED_CONTENT，停止原模型重试，检查任务内 Grok 备用。"
+                    )
+                    continue
                 await asyncio.to_thread(mark_request_final_failure, e)
                 self._schedule_llm_error_event(model_name=model_info.name, message=str(e))
                 logger.warning(f"任务 '{self.request_type or self.task_name}'：{e}")

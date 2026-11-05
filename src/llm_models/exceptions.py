@@ -109,9 +109,10 @@ class EmptyResponseException(ResponseContextException):
 
 
 class ContentBlockedError(ResponseContextException):
-    """上游明确返回内容拦截，终止当前逻辑请求，不重试或切换模型。"""
+    """明确的 PROHIBITED_CONTENT；不重试原模型，备用由调度器限定。"""
 
     default_message = "上游内容检查拦截（PROHIBITED_CONTENT），本轮已停止。"
+    stream_started: bool = False
 
 
 class ModelAttemptFailed(Exception):
