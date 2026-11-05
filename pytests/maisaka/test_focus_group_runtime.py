@@ -265,6 +265,96 @@ async def test_tools_route_by_session_without_mutating_other_chat(setup_group):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["message", "proactive"])
+@pytest.mark.parametrize("failure", ["503", "blocked", "timeout"])
+async def test_request_failure_waits_for_fresh_input_and_recovers(setup_group, trigger, failure):
+    from src.llm_models.exceptions import ContentBlockedError, LLMTaskTimeoutError, RespNotOkException
+
+    group, members, trace = setup_group
+    errors = {
+        "503": RespNotOkException(503),
+        "blocked": ContentBlockedError(),
+        "timeout": LLMTaskTimeoutError("planner", "test", 240),
+    }
+    failed, recovered = asyncio.Event(), asyncio.Event()
+    group._build_references = AsyncMock(return_value=[])
+
+    async def checkpoint():
+        if group._retry_after_sequence is not None:
+            failed.set()
+
+    async def request(*args, **kwargs):
+        if group._service.chat_loop_step.await_count == 1:
+            raise errors[failure]
+        recovered.set()
+        return _response()
+
+    group.checkpoint = AsyncMock(side_effect=checkpoint)
+    group._service.chat_loop_step = AsyncMock(side_effect=request)
+    group._queue_entry("A", _chat_history("original"))
+    group._ready.add("A")
+    group._ensure_worker()
+    try:
+        await asyncio.wait_for(failed.wait(), 2)
+        assert group.state == "failed" and not group._failed
+        assert group._considered.get("A", 0) == 0
+        assert any(entry.inputs.get("A") for entry in group.entries)
+        # 已到期的防抖/旧事件不能变成无限自动重试。
+        group._event.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert group._service.chat_loop_step.await_count == 1
+        message = _incoming("A", "fresh", at=True)
+        if trigger == "proactive":
+            group.register_proactive(members["A"], message)
+        else:
+            await group.register_message(members["A"], message, _chat_history("fresh"))
+        await asyncio.wait_for(recovered.wait(), 2)
+        assert group._service.chat_loop_step.await_count == 2
+        assert not group._failed and group._retry_after_sequence is None
+        assert not trace
+    finally:
+        await group.stop()
+
+
+@pytest.mark.asyncio
+async def test_missing_member_does_not_crash_tool_refresh(setup_group, monkeypatch):
+    from src.maisaka.focus.manager import focus_mode_manager
+
+    group, members, trace = setup_group
+    group.is_member_valid = lambda runtime: FocusGroupRuntime.is_member_valid(group, runtime)
+    monkeypatch.setattr(group_module.chat_manager, "get_session_by_session_id", lambda sid: None if sid == "A" else members[sid].chat_stream)
+    monkeypatch.setattr(focus_mode_manager, "is_enabled_for_session", lambda *args, **kwargs: True)
+    monkeypatch.setattr(focus_mode_manager, "get_focus_scope_key", lambda sid: group.scope_id)
+    await group.tools.refresh()
+    assert all("A" not in route.variants for route in group.tools.routes.values())
+    _, result, _, _ = await group.tools.invoke("echo", {"session_id": "B", "text": "ok"}, "call", "")
+    assert result.success and len(trace) == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_failure_remains_terminal_after_request_failure(setup_group):
+    from src.llm_models.exceptions import RespNotOkException
+
+    group, members, _ = setup_group
+    group._build_references = AsyncMock(return_value=[])
+    group._service.chat_loop_step = AsyncMock(side_effect=RespNotOkException(503))
+    group.checkpoint = AsyncMock(side_effect=OSError("synthetic disk failure"))
+    group._queue_entry("A", _chat_history("original"))
+    group._ready.add("A")
+    group._ensure_worker()
+    with pytest.raises(OSError):
+        await asyncio.wait_for(group._worker, 2)
+    assert group._failed
+    worker = group._worker
+    group.register_proactive(members["A"], _incoming("A", "fresh"))
+    assert group._worker is worker
+    await asyncio.gather(group._checkpoint_task, return_exceptions=True)
+    group.checkpoint = AsyncMock()
+    await group.stop()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "arguments",
     [{"text": "x"}, {"session_id": "", "text": "x"}, {"session_id": "outside", "text": "x"}, {"session_id": "A"}],

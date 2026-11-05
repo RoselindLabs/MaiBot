@@ -18,6 +18,14 @@ from src.common.message_repository import find_messages
 from src.common.utils.utils_config import ChatConfigUtils
 from src.config.config import global_config
 from src.core.tooling import ToolExecutionResult
+from src.llm_models.exceptions import (
+    ContentBlockedError,
+    EmptyResponseException,
+    ModelAttemptFailed,
+    NetworkConnectionError,
+    RespNotOkException,
+    RespParseException,
+)
 from src.llm_models.payload_content.context_item import FunctionCallItem
 from src.maisaka.chat_loop_service import ChatResponse, MaisakaChatLoopService
 from src.maisaka.context.messages import (
@@ -69,6 +77,7 @@ class FocusGroupRuntime:
         self._worker: Optional[asyncio.Task] = None
         self._closed = False
         self._failed = False
+        self._retry_after_sequence: Optional[int] = None
         self._hydrating = False
         self.restored_session_ids: Set[str] = set()
         self._wait_until: Optional[float] = None
@@ -100,7 +109,7 @@ class FocusGroupRuntime:
 
     @property
     def state(self) -> str:
-        if self._failed:
+        if self._failed or self._retry_after_sequence is not None:
             return "failed"
         if self._wait_until is not None:
             return "wait"
@@ -214,6 +223,7 @@ class FocusGroupRuntime:
         return (
             runtime._running
             and runtime._focus_group is self
+            and chat_manager.get_session_by_session_id(runtime.session_id) is not None
             and focus_mode_manager.is_enabled_for_session(
                 runtime.session_id, is_group_chat=runtime.chat_stream.is_group_session
             )
@@ -382,9 +392,13 @@ class FocusGroupRuntime:
             self._worker = asyncio.create_task(self.run())
 
     def _set_stage(self, stage: str, detail: str) -> None:
-        self._state = "failed" if self._failed else ("wait" if self._wait_until is not None else "running")
+        failed = self._failed or self._retry_after_sequence is not None
+        self._state = "failed" if failed else ("wait" if self._wait_until is not None else "running")
         for runtime in self.members.values():
-            runtime._agent_state = runtime._STATE_WAIT if self._wait_until is not None else runtime._STATE_RUNNING
+            runtime._agent_state = (
+                runtime._STATE_STOP if failed else
+                runtime._STATE_WAIT if self._wait_until is not None else runtime._STATE_RUNNING
+            )
             runtime._update_stage_status(stage, f"Focus 共享组 · {detail}", wait_until=self._wait_until)
 
     def _take_ready_inputs(self) -> List[FocusContextEntry]:
@@ -457,6 +471,13 @@ class FocusGroupRuntime:
     async def run(self) -> None:
         try:
             while not self._closed and self.members:
+                if self._retry_after_sequence is not None:
+                    # 失败输入保留，但不立即重复请求；只有失败后新登记的消息/主动任务才唤醒。
+                    if self._sequence <= self._retry_after_sequence:
+                        self._event.clear()
+                        await self._event.wait()
+                        continue
+                    self._retry_after_sequence = None
                 if self._wait_until is not None:
                     self._set_stage("等待", "整组暂停，@ 可以提前唤醒")
                     remaining = max(0.0, self._wait_until - time.time())
@@ -499,9 +520,11 @@ class FocusGroupRuntime:
             if self._closed or self._wait_until is not None:
                 return
             self._take_ready_inputs()
+            self._set_stage("准备", "检查共享工具与聊天参考")
             await self._compact()
             await self.tools.refresh()
             generation = self._generation
+            self._set_stage("准备", "构建共享聊天参考")
             references = await self._build_references()
             # 整理参考信息期间到达的就绪输入也接入本次请求；请求发出后使用固定快照。
             self._take_ready_inputs()
@@ -513,14 +536,27 @@ class FocusGroupRuntime:
             self._set_stage("Planner", f"汇合 {len(self.members)} 个聊天，等待模型响应")
             started = time.time()
             self._planner_started_at = started
-            response = await self._service.chat_loop_step(
-                history,
-                tool_definitions=self.tools.definitions(),
-                injected_user_messages=[self._roster(), self.tools.deferred_notice(), *references],
-                tail_user_messages=build_consecutive_wait_reminders(self._consecutive_waits),
-                max_context_size=max(self.max_context_size, sum(message.count_in_context for message in history) + 1),
-                logical_turn_id=logical_turn_id,
-            )
+            try:
+                response = await self._service.chat_loop_step(
+                    history,
+                    tool_definitions=self.tools.definitions(),
+                    injected_user_messages=[self._roster(), self.tools.deferred_notice(), *references],
+                    tail_user_messages=build_consecutive_wait_reminders(self._consecutive_waits),
+                    max_context_size=max(self.max_context_size, sum(message.count_in_context for message in history) + 1),
+                    logical_turn_id=logical_turn_id,
+                )
+            except (
+                ContentBlockedError, EmptyResponseException, ModelAttemptFailed,
+                NetworkConnectionError, RespNotOkException, RespParseException,
+            ) as exc:
+                # 仅请求边界可恢复；工具副作用、持久化错误与取消仍沿原停止路径。
+                self._planner_ended_at = time.time()
+                self._service.planner_request_snapshot = None
+                self._retry_after_sequence = self._sequence
+                self._set_stage("请求失败", "输入已保留，等待新消息或主动任务后继续")
+                logger.warning(f"Focus Planner 请求失败，等待新输入: scope={self.scope_id} error={exc}")
+                await self.checkpoint()
+                return
             self._planner_ended_at = time.time()
             if generation != self._generation or self._closed:
                 self._service.planner_request_snapshot = None
@@ -573,6 +609,8 @@ class FocusGroupRuntime:
         references = []
         for sid, messages in grouped.items():
             member = self.members[sid]
+            if not self.is_member_valid(member):
+                continue
             injected = await member._reasoning_engine._build_planner_injected_user_messages(
                 profile_message=messages[-1],
                 source_messages=messages,
