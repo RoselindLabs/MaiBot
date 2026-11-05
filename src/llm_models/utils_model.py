@@ -1476,6 +1476,7 @@ class LLMOrchestrator:
                 raise e
 
             except ContentBlockedError as e:
+                # NEKO: N08 gemini-fallback — 未输出且未锁模型才走任务内精确Grok交集，不重试原模型。
                 # 内容拦截不惩罚可用性；仅未输出、未锁定模型的请求可定向切 Grok。
                 self._adjust_model_usage(model_info.name, usage_penalty_delta=-1)
                 if not str(model_name or "").strip() and not e.stream_started:

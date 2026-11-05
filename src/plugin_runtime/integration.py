@@ -382,6 +382,7 @@ class PluginRuntimeManager(
 
         descriptor = get_platform_io_manager().driver_registry.get(envelope.driver_id).descriptor
         group = session_message.message_info.group_info
+        # NEKO: N01 identity-echo — 文件来源绑定已验驱动与真实私聊对端，不借发送者猜归属。
         session_message.file_source = {
             "driver_id": envelope.driver_id, "plugin_id": descriptor.plugin_id or "",
             "account_id": descriptor.account_id or "", "scope": descriptor.scope or "",

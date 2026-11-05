@@ -4,6 +4,7 @@ import hashlib
 
 
 class SessionUtils:
+    # NEKO: N01 identity-echo — 自身私聊必须有明确接收者，不猜测会话归属。
     @staticmethod
     def private_peer_id(
         user_id: str,

@@ -1652,6 +1652,7 @@ class PluginRunnerSupervisor:
         for key, value in route_metadata.items():
             if key in {"platform", *RouteKeyFactory.ACCOUNT_ID_KEYS, *RouteKeyFactory.SCOPE_KEYS, "scope"}:
                 continue
+            # NEKO: N01 identity-echo — 策略使用明确私聊对端，辅助路由元数据不得改写目标。
             if key in {"platform_io_target_user_id", "platform_io_target_group_id"}:
                 # 策略已按 message 内的会话目标验收，辅助元数据不得随后改写目标。
                 continue

@@ -108,6 +108,7 @@ class EmptyResponseException(ResponseContextException):
     default_message = "响应内容为空，这可能是一个临时性问题"
 
 
+# NEKO: N08 gemini-fallback — 结构化拦截独立终态，记录是否已交出流式块。
 class ContentBlockedError(ResponseContextException):
     """明确的 PROHIBITED_CONTENT；不重试原模型，备用由调度器限定。"""
 

@@ -377,6 +377,7 @@ class RPCServer:
 
         # 发送响应
         self.clear_handshake_state()
+        # NEKO: N09 rpc-media — 仅协商成功启用媒体表，关联响应且坏帧不重放。
         media_enabled = isinstance(self._codec, MsgPackCodec) and CAPABILITY in hello.transport_capabilities
         resp_payload = HelloResponsePayload(
             accepted=True, host_version=self._host_version,

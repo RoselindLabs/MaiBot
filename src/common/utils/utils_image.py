@@ -90,6 +90,7 @@ class ImageUtils:
             MemoryError: 如果处理过程中内存不足
             Exception: 其他异常
         """
+        # NEKO: N10 gif-frames — 浮点帧差避免溢出，保严格阈值与单帧上限。
         if max_frames <= 0:
             raise ValueError("max_frames必须大于0")
 

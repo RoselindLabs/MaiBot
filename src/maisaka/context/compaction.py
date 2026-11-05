@@ -73,6 +73,7 @@ class ContextSummaryMessage(ReferenceMessage):
         return "context_compaction"
 
 
+# NEKO: N04 context-pressure — 摘要排除有归属的临时控制，保真实IM、引用和工具配对。
 # neko-life-context-v1: request-only controls are not conversation facts.
 def _neko_internal_control(message):
     import re

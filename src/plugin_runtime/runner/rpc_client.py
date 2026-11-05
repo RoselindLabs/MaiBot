@@ -148,6 +148,7 @@ class RPCClient:
             return False
 
         logger.info(f"握手成功: host_version={resp_payload.host_version}")
+        # NEKO: N09 rpc-media — 与Host双端协商，恢复原字段再分发，坏帧拒绝不重放。
         self._hook_media_enabled = (
             isinstance(self._codec, MsgPackCodec) and CAPABILITY in resp_payload.transport_capabilities
         )

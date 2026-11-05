@@ -337,6 +337,7 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
         for message in recent_messages:
             if message.is_notify:
                 continue
+            # NEKO: N01 identity-echo — 恢复与实时历史均投影单份自身消息，不删除库记录。
             if has_self_message(restored_history, message):
                 continue
 

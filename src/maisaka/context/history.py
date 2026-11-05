@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from src.chat.message_receive.message import SessionMessage
 
 
+# NEKO: N01 identity-echo — 仅按完整正式身份配对自身消息，不按正文去重。
 def self_message_identity(message: "SessionMessage") -> tuple | None:
     """只用完整的正式归属和平台消息 ID 识别自身消息，不按正文匹配。"""
     if not message.account_id or message.message_info.user_info.user_id != message.account_id:

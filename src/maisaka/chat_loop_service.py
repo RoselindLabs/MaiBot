@@ -569,6 +569,7 @@ def register_maisaka_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
                 allow_abort=False,
                 allow_kwargs_mutation=True,
             ),
+            # NEKO: N02 reply-receipt — 只读精确回执，不把未知投递当成功或补发。
             # neko-reply-latency-v1
             HookSpec(
                 name="maisaka.reply.after_send",

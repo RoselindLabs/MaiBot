@@ -670,6 +670,7 @@ class PlatformIOManager:
         if not normalized_dedupe_key:
             return None
 
+        # NEKO: N01 identity-echo — 入站去重隔离平台、账号、scope、对端和发送者。
         # 同一驱动可服务多个账号/会话，平台消息 ID 不保证跨这些边界唯一。
         route = envelope.route_key
         message = envelope.session_message

@@ -15,6 +15,7 @@ from typing import Awaitable, Callable
 
 # 分帧常量
 FRAME_HEADER_SIZE = 4  # 4 字节长度前缀
+# NEKO: N09 rpc-media — 双端共用32MiB硬上限，读取正文前仍校验长度。
 MAX_FRAME_SIZE = 32 * 1024 * 1024  # Host/Runner共用32 MiB上限，接收端仍先校验长度再读正文
 
 

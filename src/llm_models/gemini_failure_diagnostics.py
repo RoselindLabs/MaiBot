@@ -33,6 +33,7 @@ def _number(value: Any) -> int | None:
     return value if type(value) is int and 0 <= value <= 10**12 else None
 
 
+# NEKO: N07 gemini-diagnostics — 仅有界枚举与计数，不记录正文、签名或鉴权数据。
 def gemini_failure_diagnostic(error: Exception, request: Mapping[str, Any]) -> dict[str, Any]:
     """Extract counts/enums only, including when no response arrived before timeout.
 

@@ -255,6 +255,7 @@ def _build_monitor_metadata(reply_result: ReplyGenerationResult, reply_id: str =
     return metadata
 
 
+# NEKO: N02 reply-receipt — 回执关联实际发送结果，Hook 失败不改变投递或补发。
 async def _notify_reply_delivery(tool_ctx, execution, send_results):
     """neko-reply-latency-v1: correlated receipts only; no media or extra sends."""
     if not execution.targets or not send_results:
@@ -730,6 +731,7 @@ async def execute_reply(
                     previous_sent_message=previous_sent_message,
                     first_reply_index=first_reply_index,
                 )
+                # NEKO: N02 reply-receipt — 仅纯语音关闭引用，文字与混合消息保持原规则。
                 # quote_previous 只控制后续分段；纯语音首段也不能附加目标引用。
                 # 在最终逐段发送处限制，兼容旧抽样与补充器选定引用，并保留文字引用链。
                 if reply_sequence.components and all(

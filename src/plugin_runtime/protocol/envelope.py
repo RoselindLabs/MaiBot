@@ -171,6 +171,7 @@ class HelloPayload(BaseModel):
     """SDK 版本号"""
     session_token: str = Field(description="一次性会话令牌")
     """一次性会话令牌"""
+    # NEKO: N09 rpc-media — 双端hello显式协商媒体能力，旧端缺字段保持legacy。
     transport_capabilities: List[str] = Field(default_factory=list, max_length=16)
 
 

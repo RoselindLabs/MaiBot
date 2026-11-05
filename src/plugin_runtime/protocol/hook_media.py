@@ -18,6 +18,7 @@ from .codec import Codec
 from .envelope import Envelope
 from ..transport.base import MAX_FRAME_SIZE
 
+# NEKO: N09 rpc-media — 仅协商Hook逐帧去重媒体，wire及还原帧同限32MiB，无跨帧缓存。
 CAPABILITY = "hook-media-binary-v1"
 HOOKS = frozenset({"maisaka.planner.before_request", "maisaka.replyer.before_model_request"})
 _TAG = "hook_media_wire"

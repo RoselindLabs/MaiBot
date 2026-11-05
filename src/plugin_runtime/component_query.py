@@ -789,6 +789,7 @@ class ComponentQueryService:
             platform=context.platform,
         )
 
+    # NEKO: N05 trusted-tools — 仅显式opt-in工具获宿主身份，不接受模型信封或跨群借权。
     @staticmethod
     def _build_trusted_tool_context(context: Optional[ToolExecutionContext]) -> Dict[str, str]:
         """为显式声明契约的插件提供宿主身份，不接受模型传入的同名信封。

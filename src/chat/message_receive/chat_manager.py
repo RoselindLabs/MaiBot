@@ -198,6 +198,7 @@ class ChatManager:
         group_id = message.message_info.group_info.group_id if message.message_info.group_info else None
         route_key = RouteKeyFactory.from_session_message(message)
         account_id, scope = route_key.account_id, route_key.scope
+        # NEKO: N01 identity-echo — 私聊注册使用真实对端，自身回传不覆盖对端身份。
         if group_id is None:
             user_id = SessionUtils.private_peer_id(user_id, account_id, message.message_info.additional_config)
         session_id = SessionUtils.calculate_session_id(

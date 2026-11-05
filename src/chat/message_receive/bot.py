@@ -775,6 +775,7 @@ class ChatBot:
             route_key = RouteKeyFactory.from_session_message(message)
             account_id, scope = route_key.account_id, route_key.scope
 
+            # NEKO: N01 identity-echo — 自身私聊按明确对端归属，Hook 前即隔离会话。
             session_id = SessionUtils.calculate_session_id(
                 message.platform,
                 user_id=(

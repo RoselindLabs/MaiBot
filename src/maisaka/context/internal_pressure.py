@@ -41,6 +41,7 @@ from .messages import (
     ToolResultMessage,
 )
 
+# NEKO: N04 context-pressure — 私聊内部Item按192/96滞回回收，保真实IM和受保护工具批次。
 INTERNAL_ITEM_TRIGGER = 192
 INTERNAL_ITEM_TARGET = 96
 MAX_STATE_GUARDS = 16384

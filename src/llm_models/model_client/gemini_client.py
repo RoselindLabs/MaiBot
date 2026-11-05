@@ -154,6 +154,7 @@ GEMINI_FALLBACK_THOUGHT_SIGNATURE = b"skip_thought_signature_validator"
 """当历史 function call 没有原始 thought signature 时，使用官方允许的占位签名跳过校验。"""
 
 
+# NEKO: N08 gemini-fallback — 只识别明确结构化拦截，流式已输出边界禁止混合备用。
 def _raise_if_prohibited_content(response: GenerateContentResponse) -> None:
     """仅识别明确的结构化输入拦截，不按正文或其它结束原因猜测。"""
     feedback = response.prompt_feedback
@@ -738,6 +739,7 @@ def _default_normal_response_parser(
     Raises:
         EmptyResponseException: 响应中既无正文也无工具调用且无思考内容时抛出。
     """
+    # NEKO: N08 gemini-fallback — 非流式仅消费首候选的正文、思考和工具，保原计费统计。
     # candidates 是备选答案，不是连续分片；与 SDK response.text 一致只消费第一项。
     # 同步限定正文、思考和工具，避免不同候选的工具被一并执行；原响应留给诊断。
     candidates = _get_candidates(response)

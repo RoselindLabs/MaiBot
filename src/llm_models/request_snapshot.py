@@ -850,6 +850,7 @@ def save_failed_request_snapshot(
                 operation=operation,
                 trace_context=active_trace_context,
             )
+            # NEKO: N07 gemini-diagnostics — 复用已有失败快照，诊断失败不覆盖原异常。
             if client_type == "gemini" and internal_request.get("request_kind") == "response":
                 # Add metadata to this existing attempt/event, never create another request or log body.
                 try:

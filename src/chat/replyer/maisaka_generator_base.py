@@ -951,6 +951,7 @@ class BaseMaisakaReplyGenerator(RetroReplyPromptMixin):
             logger.info("表达方式选择跳过：缺少子代理执行器")
             return MaisakaReplyContext()
 
+        # NEKO: N03 expression-budget — 全链路共用20秒协作预算，外部取消保持传播。
         # neko-reply-latency-v1: one cooperative deadline for vector + LLM + hooks.
         try:
             async with asyncio.timeout(20.0):

@@ -1141,6 +1141,7 @@ class MaisakaReasoningEngine:
 
     async def _ingest_messages(self, messages: list[SessionMessage]) -> None:
         """处理传入消息列表，将其转换为历史消息并加入聊天历史缓存。"""
+        # NEKO: N01 identity-echo — 媒体await前后均核对正式自身身份，避免双份上下文。
         from src.maisaka.context.history import has_self_message
 
         for message in messages:
@@ -1316,6 +1317,7 @@ class MaisakaReasoningEngine:
         self._runtime._log_cycle_completed(cycle_detail, timer_strings)
         return cycle_detail
 
+    # NEKO: N04 context-pressure — 仅私聊，摘要成功且CAS未变才提交，失败或取消保原历史。
     async def _compact_private_internal_history(self, cycle_detail: CycleDetail) -> None:
         """Private-only internal pressure, successful-summary commit or no change.
 

@@ -471,6 +471,7 @@ class FocusGroupRuntime:
     async def run(self) -> None:
         try:
             while not self._closed and self.members:
+                # NEKO: N11 focus-recovery — 请求失败保留输入，仅失败后的新消息或主动任务唤醒。
                 if self._retry_after_sequence is not None:
                     # 失败输入保留，但不立即重复请求；只有失败后新登记的消息/主动任务才唤醒。
                     if self._sequence <= self._retry_after_sequence:

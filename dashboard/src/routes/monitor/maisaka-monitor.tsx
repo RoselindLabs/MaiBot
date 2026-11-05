@@ -161,6 +161,7 @@ function isMessageTimelineEntry(entry?: TimelineEntry) {
   return entry?.type === 'message.ingested' || entry?.type === 'message.sent'
 }
 
+// NEKO: N13 dashboard-echo — 仅完整正式身份配对气泡，保原事件和无对应出站的自身消息。
 /** 只配对同一 QQ 会话里的发送记录与自身回传，不按正文或时间猜测。 */
 function getSelfEchoIdentity(entry: TimelineEntry): string | null {
   if (!isMessageTimelineEntry(entry)) return null
