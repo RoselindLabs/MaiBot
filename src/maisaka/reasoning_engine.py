@@ -659,11 +659,17 @@ class MaisakaReasoningEngine:
                 ),
                 None,
             )
-            response = await self._run_interruptible_planner(
+            # NEKO: N16 planner-progress — ordinary and shared Planner use the same request-local observer.
+            from src.llm_models.request_progress import observe_planner
+            response = await observe_planner(self._run_interruptible_planner(
                 injected_user_messages=injected_user_messages or None,
                 tail_user_messages=build_consecutive_wait_reminders(self._runtime._consecutive_wait_count),
                 tool_definitions=action_tool_definitions,
-            )
+            ), lambda phase, model: self._runtime._update_stage_status(
+                "Planner" if model else phase,
+                f"{phase} · {model}" if model else phase,
+                round_text=round_text,
+            ))
         finally:
             state.planner_ended_at = time.time()
             state.planner_duration_ms = (state.planner_ended_at - planner_started_at) * 1000

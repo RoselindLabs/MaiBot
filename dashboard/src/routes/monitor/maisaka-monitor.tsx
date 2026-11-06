@@ -747,7 +747,8 @@ function StageStatusContent({
         {status.roundText && <span>{status.roundText}</span>}
         {agentStateLabel && <span>{agentStateLabel}</span>}
         <span className="text-muted-foreground ml-auto text-[11px]">
-          {floating || status.stage === '组织上下文' ? (
+          {/* NEKO: N16 planner-progress — elapsed time stays live between provider events. */}
+          {floating || status.stage === '组织上下文' || status.stage === 'Planner' ? (
             <ToolExecutionElapsed key={status.stageStartedAt} startedAt={status.stageStartedAt} />
           ) : (
             `更新于 ${formatRelativeTime(status.updatedAt)}`

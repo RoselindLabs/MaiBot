@@ -554,14 +554,19 @@ class FocusGroupRuntime:
                 # path also works before any successful request / after restore.
                 await self._recover_context(references)
                 history = self.history
-                response = await self._service.chat_loop_step(
+                # NEKO: N16 planner-progress — shared members observe this request, never another group's.
+                from src.llm_models.request_progress import observe_planner
+                response = await observe_planner(self._service.chat_loop_step(
                     history,
                     tool_definitions=self.tools.definitions(),
                     injected_user_messages=[self._roster(), self.tools.deferred_notice(), *references],
                     tail_user_messages=build_consecutive_wait_reminders(self._consecutive_waits),
                     max_context_size=max(self.max_context_size, sum(message.count_in_context for message in history) + 1),
                     logical_turn_id=logical_turn_id,
-                )
+                ), lambda phase, model: self._set_stage(
+                    "Planner" if model else phase,
+                    f"{phase} · {model}" if model else phase,
+                ))
             except (
                 ContentBlockedError, EmptyResponseException, ModelAttemptFailed,
                 NetworkConnectionError, RespNotOkException, RespParseException,

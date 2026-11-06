@@ -1081,7 +1081,11 @@ class LLMOrchestrator:
             )
             attach_request_snapshot(error, snapshot_path)
 
+        # NEKO: N16 planner-progress — observe the existing attempts without changing deadlines.
+        from src.llm_models.request_progress import report_progress
+
         while retry_remain > 0:
+            report_progress(self.request_type, "请求中" if retry_remain == max_attempts else "重试请求中", model_info.name)
             if active_request.trace_context is not None:
                 active_request.trace_context.attempt += 1
                 active_request.trace_context.model_attempt += 1
@@ -1138,6 +1142,7 @@ class LLMOrchestrator:
                     retry_interval=api_provider.retry_interval,
                 )
                 await asyncio.to_thread(update_failed_request_attempt, e, status="retrying", retry_interval=api_provider.retry_interval)
+                report_progress(self.request_type, "等待重试", model_info.name)
                 await asyncio.sleep(api_provider.retry_interval)
 
             except NetworkConnectionError as e:
@@ -1187,6 +1192,7 @@ class LLMOrchestrator:
                     retry_interval=api_provider.retry_interval,
                 )
                 await asyncio.to_thread(update_failed_request_attempt, e, status="retrying", retry_interval=api_provider.retry_interval)
+                report_progress(self.request_type, "等待重试", model_info.name)
                 await asyncio.sleep(api_provider.retry_interval)
 
             except RespNotOkException as e:
@@ -1219,6 +1225,7 @@ class LLMOrchestrator:
                         retry_interval=api_provider.retry_interval,
                     )
                     await asyncio.to_thread(update_failed_request_attempt, e, status="retrying", retry_interval=api_provider.retry_interval)
+                    report_progress(self.request_type, "等待重试", model_info.name)
                     await asyncio.sleep(api_provider.retry_interval)
                     continue
 
@@ -1277,6 +1284,7 @@ class LLMOrchestrator:
                     retry_interval=api_provider.retry_interval,
                 )
                 await asyncio.to_thread(update_failed_request_attempt, e, status="retrying", retry_interval=api_provider.retry_interval)
+                report_progress(self.request_type, "等待重试", model_info.name)
                 await asyncio.sleep(api_provider.retry_interval)
 
             except ReqAbortException:
@@ -1486,6 +1494,9 @@ class LLMOrchestrator:
                     failed_models_this_request.add(model_info.name)
                     last_exception = e
                     content_block_fallback = True
+                    # NEKO: N16 planner-progress — report only the phase, not provider errors or payloads.
+                    from src.llm_models.request_progress import report_progress
+                    report_progress(self.request_type, "切换候选（内容拦截）", model_info.name)
                     await asyncio.to_thread(update_failed_request_attempt, e, status="switching_model")
                     logger.warning(
                         f"模型 '{model_info.name}' 返回 PROHIBITED_CONTENT，停止原模型重试，检查任务内 Grok 备用。"
@@ -1515,6 +1526,9 @@ class LLMOrchestrator:
                 self._adjust_model_usage(model_info.name, penalty_delta=1, usage_penalty_delta=-1)
                 failed_models_this_request.add(model_info.name)
                 if model_index < max_attempts - 1:
+                    # NEKO: N16 planner-progress — surface hard timeout/failure before candidate selection.
+                    from src.llm_models.request_progress import report_progress
+                    report_progress(self.request_type, "切换候选（超时或失败）", model_info.name)
                     await asyncio.to_thread(update_failed_request_attempt, last_exception, status="switching_model")
 
                 if isinstance(last_exception, RespNotOkException) and last_exception.status_code == 400:
