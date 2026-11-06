@@ -12,7 +12,7 @@
 | --- | --- |
 | 上游与依赖 | MaiBot1.3.19／SDK2.20.0／Dashboard1.9.13，固定uv.lock，DB46 |
 | 维护源码 | `neko/main`；用`git rev-parse HEAD`取得实际修订，最近子代理交接业务提交`019314848` |
-| 来源登记 | `neko-patches.json`纳管29源＋锁30项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
+| 来源登记 | `neko-patches.json`纳管30源＋锁31项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
 | 配套适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
 | 发布状态 | 本仓只声明源码行为；实例实际部署SHA、待发布差异与备份以私有运维登记为准，不用本文旧发布快照推断线上状态 |
 
@@ -45,6 +45,7 @@
 | N12 subagent-evidence | 子代理来源与核实层级交接：`src/maisaka/builtin_tool/subagent.py` | 子代理提示人工核对、宿主契约；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
 | N13 dashboard-echo | 群聊自身回传展示合并：`dashboard/src/routes/monitor/maisaka-monitor.tsx` | 对应监控合成样本、前端类型/构建、实际静态hash | 上游按正式消息身份合并，缺身份和无出站对应仍保留 |
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
+| N15 bounded-steering | 普通聊天有限消息打断：`src/maisaka/reasoning_engine.py`、配置说明`src/config/official_configs.py` | `pytests/neko/test_bounded_steering.py`实际循环、准备竞态、取消/失败清理、关闭开关 | 上游跨重请求限制消息打断且保留排队输入与外部取消；共享Focus合同不变 |
 
 **每次正式tag合并的核对记录**：在集成提交说明中逐ID记`keep / port / retire`及上游SHA、差异入口和验证结果。
 只在等价证据成立后retire；同时移除对应维护注释、更新来源hash/集合及行为文档，保历史提交。
@@ -52,6 +53,15 @@
 
 **三个版本分开看**：上游基线来自清单`upstream_commit`；维护HEAD来自Git；部署SHA来自实例来源登记。
 部署后按`deployed..HEAD`列实际未发布差异，纯文档前移不列为待上线业务。本文不写自指HEAD或假定推送即部署。
+
+### N15 普通快速反应有限打断（2026-11-06，本地源码）
+
+- 普通ReasoningEngine在有效Planner决策完成前最多因消息打断两次，计数跨bind和同轮重请求；之后请求不绑定消息中断，准备期间和在途新消息保留到既有下一边界处理。
+- 成功请求重置预算；逻辑回合结束、异常或取消在finally清理。外部task取消仍有效，包括准备竞态中适配器将取消转为ReqAbortException的交错；没有给工具执行加重试或中断。
+- 保现有防抖、@、wait、最大内部轮次与开关默认false；不新增配置字段或Token预算。共享Focus源码保持，仅配置描述澄清其强制流式、不提供普通消息打断/wait提前结束。
+- 事件驱动合成测试运行真实run_loop、请求准备/中断/消息接入链与Controller，以无网络模型事件替身验证连续消息仍可完成决策、成功后恢复预算、准备竞态、外部取消、失败退出、消息保留和子任务结束。上下文IO、动作执行与监控为替身，不代表真实模型一定成功、QQ送达或线上问题已验收。
+- 新纳管配置描述源，当前30源＋锁31项；本次仅本地源码交付，未push、部署、重启或修改实例配置。
+- Windows Python3.12锁定环境：`uv sync --locked --group dev`通过；普通中断定向9项通过，标准`neko_check.py`隔离禁网络门禁597项通过（含原Focus回归和固定TTS消费者）。追加无残留asyncio任务断言后定向9项再次通过；未执行Linux CI或真实模型请求。
 
 ### N12 子代理检索与证据交接（2026-11-05）
 
@@ -167,7 +177,7 @@
 1.3.19初次集成时修正uv错误解析，登记为六源＋锁七项；后续同版Gemini失败诊断/RPC32
 补修当时扩为九源＋锁十项；后续内部历史压力与重复媒体运输扩为十五源＋锁十六项；
 后续GIF修复扩为十六源＋锁十七项，内容止损扩为十九源＋锁二十项；本次私聊链路补修
-当批扩为**二十七源＋锁二十八项**，后续N11/N12扩为当前29源＋锁30项。依赖及既有其他维护行为保持。运行固定提交与发布验收以实例登记为准，
+当批扩为**二十七源＋锁二十八项**，后续N11/N12扩为29源＋锁30项，N15扩为当前30源＋锁31项。依赖及既有其他维护行为保持。运行固定提交与发布验收以实例登记为准，
 文档提交前移不构成待补部署。
 此前1.3.18/f636d1092、SDK2.19.0/Dashboard1.9.12，以及1.3.17/789bac67e、
 1.3.16/e7cc25bdf的线上记录留作历史，不覆盖当前1.3.19/SDK2.20.0。

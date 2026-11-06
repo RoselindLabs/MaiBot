@@ -11,6 +11,7 @@ _collected = set()
 _completed = set()
 _skipped = []
 REQUIRED = {
+    "pytests/neko/test_bounded_steering.py",
     "pytests/neko/test_reply_contracts.py",
     "pytests/neko/test_life_compaction.py",
     "pytests/neko/test_source_policy.py",

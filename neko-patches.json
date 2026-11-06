@@ -5,6 +5,7 @@
   "lock_baseline_commit": "fe88ec6b6053e40eaf430cb5ba7ed7e805add2cb",
   "runtime_packages": {"maibot": "1.3.19", "maibot-dashboard": "1.9.13", "maibot-plugin-sdk": "2.20.0"},
   "sources": {
+    "src/config/official_configs.py": "41d006c3a7b086a3ca7826eb76b45eee600a49eebd99d0164ee9f7188ea2fb27",
     "src/maisaka/builtin_tool/subagent.py": "1bc5aac1c9fb9def40d072b9d1cce996983c7f6326b083a08be90dde5b1d3343",
     "src/maisaka/focus/group_runtime.py": "e8e623111738b9a56f927477026173c8970329d3b87b5b1f8c675a5b368334d2",
     "src/chat/message_receive/bot.py": "ebe54f5784b783443ad0c0b667f80952e5dffd9d764175c597d38b3d9e22db77",
@@ -29,7 +30,7 @@
     "src/llm_models/utils_model.py": "4cacaa23edb080fe9c8d0406a1a090a9dc95e5ebc1dc9191ca7e27d1ed9f4ed0",
     "src/plugin_runtime/transport/base.py": "679943d9a9d6983ce0ded96717e393beb68fd9680ab416568b784c3000163929",
     "src/maisaka/context/internal_pressure.py": "d916faa0ebc5610c8b49f642617f042fe410b1bc5c21f4676a69d0af94c4f919",
-    "src/maisaka/reasoning_engine.py": "54125385fd27a137bcbdb450ecf96a71dd6349452cb1d56b4f21d9baec6d1452",
+    "src/maisaka/reasoning_engine.py": "dd485e7d50342c848360345405babe253374e427f901d9c720d9b832ab31c2ec",
     "src/plugin_runtime/protocol/hook_media.py": "da730c695f476acc93ff3fe08aa3043c9dafd5e6e073f82a7c13a07ad51a5101",
     "src/plugin_runtime/protocol/envelope.py": "42712f753a6eeee083ce9c3128431a1935117a5dccda41983752553dc5f55c08",
     "src/plugin_runtime/host/rpc_server.py": "94bbfc5c7ee733f53f3b426b60827fcf989f96f1cf22dfa64dc48f925771c0e3",

@@ -596,7 +596,8 @@ class ChatReplyTimingConfig(ConfigBase):
             "x-widget": "switch",
         },
     )
-    """强制 Planner 使用流式请求；思考或输出期间收到新消息立即打断并带上新消息重新请求，wait 等待也可被新消息提前结束。"""
+    # NEKO: N15 bounded-steering — describe ordinary chat separately from shared Focus.
+    """强制 Planner 使用流式请求。普通聊天在有效决策完成前最多因新消息打断两次，随后保护一次请求，新消息留待下一边界处理；普通聊天的 wait 可被新消息提前结束。共享 Focus 仅强制流式，不提供新消息打断或普通消息提前结束 wait。"""
 
     talk_value: float = Field(
         default=1,

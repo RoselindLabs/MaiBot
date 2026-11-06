@@ -161,6 +161,7 @@ class MaisakaReasoningEngine:
         self._active_logical_turn_id: str | None = None
         self._turn_passive_replyer: Optional[bool] = None
         self._internal_pressure_attempted = False
+        self._planner_message_interrupts = 0
 
     @property
     def passive_replyer_enabled(self) -> bool:
@@ -200,11 +201,18 @@ class MaisakaReasoningEngine:
     ) -> Any:
         """运行一轮可被新消息打断的主 planner 请求。"""
 
-        interrupt_flag = asyncio.Event()
-        self._runtime._planner_interrupt.bind(interrupt_flag)
+        # NEKO: N15 bounded-steering — budget survives rebinds until a decision or turn end.
+        # A protected request leaves new messages queued; task cancellation still propagates.
+        interrupt_flag = asyncio.Event() if self._planner_message_interrupts < 2 else None
+        if interrupt_flag is not None:
+            self._runtime._planner_interrupt.bind(interrupt_flag)
         self._runtime._chat_loop_service.set_interrupt_flag(interrupt_flag)
         try:
-            if global_config.chat.reply_timing.planner_message_steering and self._runtime._has_pending_messages():
+            if (
+                interrupt_flag is not None
+                and global_config.chat.reply_timing.planner_message_steering
+                and self._runtime._has_pending_messages()
+            ):
                 # 覆盖整理上下文到绑定中断标记之间收到消息的窗口。
                 interrupt_flag.set()
             planner_task = asyncio.create_task(
@@ -218,9 +226,20 @@ class MaisakaReasoningEngine:
                 )
             )
             # 在完整请求期间监听中断，流暂时没有数据时也能取消，不采用迟到的输出。
-            return await await_task_with_interrupt(planner_task, interrupt_flag)
+            response = await await_task_with_interrupt(planner_task, interrupt_flag)
+            self._planner_message_interrupts = 0
+            return response
+        except ReqAbortException:
+            # The request adapter may translate cancellation while draining an already
+            # interrupted child. An external cancellation must still end this loop.
+            if asyncio.current_task().cancelling():
+                raise asyncio.CancelledError from None
+            if interrupt_flag is not None and interrupt_flag.is_set():
+                self._planner_message_interrupts += 1
+            raise
         finally:
-            self._runtime._planner_interrupt.unbind(interrupt_flag)
+            if interrupt_flag is not None:
+                self._runtime._planner_interrupt.unbind(interrupt_flag)
             self._runtime._chat_loop_service.set_interrupt_flag(None)
 
     async def _build_action_tool_definitions(self) -> tuple[list[dict[str, Any]], str]:
@@ -1031,6 +1050,7 @@ class MaisakaReasoningEngine:
                             if not state.planner_interrupted:
                                 round_index += 1
                 finally:
+                    self._planner_message_interrupts = 0
                     self._turn_passive_replyer = None
                     self._runtime._chat_loop_service.passive_replyer_override = None
                     self._active_logical_turn_id = None
