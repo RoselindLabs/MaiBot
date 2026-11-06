@@ -242,7 +242,7 @@ class ChatManager:
                 changed = True
             return changed
 
-        # 自身私聊回传只描述发送者，不能用机器人昵称覆盖对端身份。
+        # NEKO: N01 identity-echo — 自身私聊回传只描述发送者，不能用机器人昵称覆盖对端身份。
         if user_info.user_id != session.user_id:
             return changed
         user_nickname = self._normalize_identity_text(user_info.user_nickname)

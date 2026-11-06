@@ -82,6 +82,7 @@ class RPCServer:
         self._tasks: List[asyncio.Task[None]] = []
         self._last_handshake_rejection_reason: str = ""
         self._connection_lock: asyncio.Lock = asyncio.Lock()
+        # NEKO: N09 rpc-media — 协商/关联状态仅属当前连接，编码沿单份锁背压。
         self._hook_media_enabled = False
         self._pending_hook_media: Dict[int, HookContext] = {}
         self._encode_lock = asyncio.Lock()
@@ -156,6 +157,7 @@ class RPCServer:
         """停止 RPC 服务器"""
         self._running = False
         self._hook_media_enabled = False
+        # NEKO: N09 rpc-media — 停止时清除协商状态，重连须重新握手。
         self.clear_handshake_state()
         self.abort_pending_requests("服务器正在关闭")
 
@@ -208,6 +210,7 @@ class RPCServer:
         """
         if not self._connection or self._connection.is_closed:
             raise RPCError(ErrorCode.E_PLUGIN_CRASHED, "Runner 未连接")
+        # NEKO: N09 rpc-media — 固定请求连接与协商状态，编码await后不能误发到新连接。
         connection = self._connection
         media_enabled = self._hook_media_enabled
         request_id = await self._id_gen.next()
@@ -264,6 +267,7 @@ class RPCServer:
             raise RPCError(ErrorCode.E_UNKNOWN, str(e)) from e
         finally:
             self._pending_hook_media.pop(request_id, None)
+            # NEKO: N09 rpc-media — 超时/取消/失败都清理关联与future，不重放请求。
             self._pending_requests.pop(request_id, None)
             self._pending_request_metadata.pop(request_id, None)
             if not future.done():
@@ -327,6 +331,7 @@ class RPCServer:
             async with self._connection_lock:
                 if self._connection is conn:
                     self._connection = None
+                    # NEKO: N09 rpc-media — 断连丢弃协商状态，不沿用旧端能力。
                     self._hook_media_enabled = False
                     should_fail_pending_requests = True
             if should_fail_pending_requests:
@@ -401,6 +406,7 @@ class RPCServer:
     # ========= 接收循环 =========
     async def _recv_loop(self, conn: Connection) -> None:
         """消息接收主循环"""
+        # NEKO: N09 rpc-media — 先恢复并校验关联再分发，坏帧失败且不重放。
         media_enabled = self._hook_media_enabled
         while self._running and not conn.is_closed:
             try:
@@ -456,6 +462,7 @@ class RPCServer:
     def _handle_response(self, envelope: Envelope) -> None:
         """处理来自 Runner 的响应"""
         pending_future = self._pending_requests.pop(envelope.request_id, None)
+        # NEKO: N09 rpc-media — 响应必须匹配method/plugin身份，清除媒体关联后只完成一次。
         metadata = self._pending_request_metadata.pop(envelope.request_id, None)
         self._pending_hook_media.pop(envelope.request_id, None)
         if pending_future is None:
@@ -511,6 +518,7 @@ class RPCServer:
         self._pending_requests.clear()
         self._pending_request_metadata.clear()
         self._pending_hook_media.clear()
+        # NEKO: N09 rpc-media — 批量终止同时清媒体关联，不跨连接留存。
         return aborted_request_count
 
     def _fail_queued_sends(self, error_code: ErrorCode, message: str) -> int:

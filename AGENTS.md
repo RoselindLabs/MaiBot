@@ -4,6 +4,9 @@
 - Read `NEKO_FORK.md` and `neko-patches.json` first. `main` is the upstream mirror;
   `neko/main` is the maintenance default. Never discard fork commits to sync.
 - Before merging upstream, review every stable patch ID in `NEKO_FORK.md`'s upgrade ledger.
+- Mark independent maintained blocks with `NEKO: Nxx slug — reason / preserved boundary`;
+  keep stable entry points, tests and retirement conditions in that existing ledger.
+  Run `pytests/neko/test_source_policy.py` through the standard gate; do not duplicate its hashes/registry.
   Hashes detect drift; they do not replace behavior review. Record keep/port/retire evidence.
 - Source creation/push is not production migration or restart authorization.
 - Do not import runtime config/data/plugins, credentials, private prompts or chat history.

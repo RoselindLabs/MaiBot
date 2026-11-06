@@ -591,6 +591,7 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
 
             user_info = message.message_info.user_info
             speaker_name = user_info.user_cardname or user_info.user_nickname or user_info.user_id
+            # NEKO: N01 identity-echo — 先到回传仍发布发送事件，但不追加第二份上下文。
             if has_self_message(self._chat_history, message):
                 # 回传可能先于发送回执进入历史；仍发布成功发送事件，不再追加第二份上下文。
                 self._emit_monitor_message_sent(message=message, speaker_name=speaker_name, source_kind=source_kind)
@@ -1022,6 +1023,7 @@ class MaisakaHeartFlowChatting(MaisakaRuntimeDisplayMixin):
 
     async def _register_message(self, message: SessionMessage) -> None:
         """按聊天串行登记，避免媒体构建期间同一条消息重复进入共享上下文。"""
+        # NEKO: N01 identity-echo — 实时入口先核对正式身份，媒体await前阻止重复。
         from src.maisaka.context.history import has_self_message
 
         if has_self_message(self._chat_history, message):

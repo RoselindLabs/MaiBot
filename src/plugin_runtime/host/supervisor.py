@@ -1706,6 +1706,7 @@ class PluginRunnerSupervisor:
     @staticmethod
     def _resolve_policy_target(message: Dict[str, Any], *, account_id: Optional[str] = None) -> tuple[str, str]:
         """从标准消息字典解析群聊/私聊策略目标。"""
+        # NEKO: N01 identity-echo — 策略私聊对端来自正式账号与明确目标，不猜发送者。
 
         group_id = str(message.get("group_id") or "").strip()
         message_info = message.get("message_info")
@@ -1738,6 +1739,7 @@ class PluginRunnerSupervisor:
     ) -> Dict[str, Any]:
         """执行统一适配器入站名单策略。"""
 
+        # NEKO: N01 identity-echo — 入站策略以验收路由账号为准，不能借消息载荷换账号。
         chat_type, target_id = self._resolve_policy_target(message, account_id=route_key.account_id)
         result = get_adapter_policy_manager().evaluate(
             AdapterIdentity(

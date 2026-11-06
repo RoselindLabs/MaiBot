@@ -833,6 +833,7 @@ class ComponentQueryService:
         """
 
         payload = dict(invocation.arguments)
+        # NEKO: N05 trusted-tools — 显式opt-in才覆盖身份信封，模型参数不能自行背书。
         if (
             entry.invoke_method == "plugin.invoke_tool"
             and entry.metadata.get("trusted_context") == "neko.tools.context.v1"

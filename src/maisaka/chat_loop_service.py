@@ -1229,7 +1229,7 @@ class MaisakaChatLoopService:
                 preserved_item_ids=preserved_image_item_ids,
             )
 
-        # NEKO: N11 — record exact ownership before Hooks; never remove Hook
+        # NEKO: N11 focus-recovery — record exact ownership before Hooks; never remove Hook
         # material by its position in a rewritten request.
         owned_history = {item.meta.item_id: item for item in built_messages[1:history_item_count + 1]}
 
@@ -1316,6 +1316,7 @@ class MaisakaChatLoopService:
                 tool_provider_by_name.get(resolve_tool_definition_name(definition), "")
                 for definition in all_tools
             ]
+        # NEKO: N11 focus-recovery — 只读模板先验归属，禁止成为执行快照或绕过外接Planner。
         if prepare_focus_compaction:
             if request_kind != "planner":
                 raise FocusRecoveryError("Focus 压缩模板只能来自 Planner 准备链")

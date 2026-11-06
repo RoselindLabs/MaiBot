@@ -1111,6 +1111,7 @@ class LLMOrchestrator:
                     response.request_snapshot = await asyncio.to_thread(active_request.detached_snapshot)
                 return response
             except ContentBlockedError as e:
+                # NEKO: N08 gemini-fallback — 原模型拦截立即退出重试层，保尝试快照。
                 await ensure_attempt_snapshot(e)
                 raise
 
@@ -1381,6 +1382,7 @@ class LLMOrchestrator:
         max_attempts = 1 if str(model_name or "").strip() else len(self.model_for_task.model_list)
         last_exception: Optional[Exception] = None
         last_model_name = ""
+        # NEKO: N08 gemini-fallback — 备用状态只属本次请求，不污染其它任务路由。
         content_block_fallback = False
         trace_context = RequestTraceContext(
             task_name=self.task_name,
@@ -1391,6 +1393,7 @@ class LLMOrchestrator:
         for model_index in range(max_attempts):
             selected_override = model_name
             if content_block_fallback:
+                # NEKO: N08 gemini-fallback — 仅任务内精确API标识交集，有限备用后不回原模型。
                 # Only exact API identifiers in this task are eligible, never display-name guesses.
                 self._refresh_task_config()
                 selected_override = next(

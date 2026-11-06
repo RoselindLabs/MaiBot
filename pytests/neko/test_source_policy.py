@@ -3,8 +3,12 @@
 from pathlib import Path
 
 import hashlib
+import ast
+import io
 import json
+import re
 import subprocess
+import tokenize
 import tomllib
 import pytest
 
@@ -19,6 +23,73 @@ def test_all_registered_source_bytes_match():
     assert len(manifest["sources"]) == 31
     for name, digest in manifest["sources"].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
+
+
+def _python_maintenance_markers(source):
+    """Read comments and actual docstrings, never runtime strings or prompts."""
+    texts = [token.string for token in tokenize.generate_tokens(io.StringIO(source).readline)
+             if token.type == tokenize.COMMENT]
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            doc = ast.get_docstring(node, clean=False)
+            if doc is not None:
+                texts.append(doc)
+    return [line.split("NEKO:", 1)[1].strip()
+            for text in texts for line in text.splitlines() if "NEKO:" in line]
+
+
+def _validate_maintenance_markers(source, ledger, *, required=False):
+    markers = _python_maintenance_markers(source)
+    assert markers or not required, "Missing maintenance marker"
+    for marker in markers:
+        match = re.fullmatch(r"(N\d{2}) ([a-z0-9]+(?:-[a-z0-9]+)*) — (\S.*)", marker)
+        assert match, f"Malformed maintenance marker: {marker}"
+        patch_id, slug, _reason = match.groups()
+        assert ledger.get(patch_id) == slug, f"Unknown ID or mismatched slug: {marker}"
+    return markers
+
+
+def test_maintained_python_markers_match_upgrade_ledger():
+    # The existing human upgrade ledger owns IDs/slugs; do not maintain a second registry.
+    rows = re.findall(r"^\| (N\d{2}) ([a-z0-9-]+) \|", (ROOT / "NEKO_FORK.md").read_text(encoding="utf-8"), re.M)
+    ledger = dict(rows)
+    assert rows and len(ledger) == len(rows), "Missing or duplicate ledger IDs"
+    manifest = json.loads((ROOT / "neko-patches.json").read_text(encoding="utf-8"))
+    maintained = {name for name in manifest["sources"] if name.endswith(".py")}
+    # uv.lock has hashes, not Python comments. Dashboard has its separate artifact contract.
+    # Scan all product Python so a marker in an unregistered/new file cannot hide an unknown ID.
+    for path in (ROOT / "src").rglob("*.py"):
+        name = path.relative_to(ROOT).as_posix()
+        try:
+            _validate_maintenance_markers(path.read_text(encoding="utf-8-sig"), ledger, required=name in maintained)
+        except AssertionError as exc:
+            raise AssertionError(f"{name}: {exc}") from exc
+
+
+def test_marker_parser_ignores_runtime_strings_and_accepts_multiple_ids():
+    source = '''"""NEKO: N01 identity-echo — module contract"""
+value = "NEKO: N99 invented — runtime text is not a marker"
+# NEKO: N15 bounded-steering — preserve cancellation
+def helper():
+    """NEKO: N15 bounded-steering — function contract"""
+    return "NEKO: N99 invented — also ordinary text"
+'''
+    assert len(_validate_maintenance_markers(
+        source, {"N01": "identity-echo", "N15": "bounded-steering"}, required=True,
+    )) == 3
+
+
+@pytest.mark.parametrize("source,reason", [
+    ('value = "NEKO: N01 identity-echo — string only"', "Missing"),
+    ("# NEKO: N99 invented — unknown", "Unknown"),
+    ("# NEKO: N01 wrong-slug — mismatch", "Unknown"),
+    ("# NEKO: N01 — missing slug", "Malformed"),
+    ("# NEKO: N01 identity-echo — ", "Malformed"),
+    ('def helper():\n    """NEKO: N99 invented — unknown docstring"""', "Unknown"),
+])
+def test_marker_policy_rejects_missing_unknown_or_malformed_markers(source, reason):
+    with pytest.raises(AssertionError, match=reason):
+        _validate_maintenance_markers(source, {"N01": "identity-echo"}, required=True)
 
 
 def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():

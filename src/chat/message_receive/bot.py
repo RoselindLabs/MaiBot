@@ -867,6 +867,7 @@ class ChatBot:
             chat_manager.register_message(message)
 
             platform = message.platform
+            # NEKO: N01 identity-echo — 入站后续归属也使用真实对端，与Hook前会话一致。
             user_id = (
                 user_info.user_id if group_info else SessionUtils.private_peer_id(
                     user_info.user_id, account_id, message.message_info.additional_config

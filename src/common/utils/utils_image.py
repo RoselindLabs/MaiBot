@@ -106,7 +106,7 @@ class ImageUtils:
             for frame in ImageSequence.Iterator(gif_image):
                 # 确保是RGB格式方便比较
                 frame_rgb = frame.convert("RGB")
-                # 在减法和平方前转为浮点数，避免uint8回绕使不同帧被误判为相似。
+                # NEKO: N10 gif-frames — 减法和平方前转浮点，避免uint8回绕误判相似。
                 frame_np = np.array(frame_rgb, dtype=np.float32)
 
                 if frame_index == 0:
@@ -120,6 +120,7 @@ class ImageUtils:
                         selected_frames.append(frame_rgb.copy())
                         last_selected_frame_np = frame_np
                 if len(selected_frames) >= max_frames:
+                    # NEKO: N10 gif-frames — 首帧也检查上限，max_frames=1不可多抽帧。
                     break
                 frame_index += 1
 

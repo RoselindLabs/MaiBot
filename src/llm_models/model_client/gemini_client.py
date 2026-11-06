@@ -162,6 +162,7 @@ def _raise_if_prohibited_content(response: GenerateContentResponse) -> None:
         raise ContentBlockedError(response)
 
 
+# NEKO: N08 gemini-fallback — 首块前检查拦截，已交出任何块后禁止混合备用并关闭流。
 async def _check_stream_content_blocks(
     response_stream: AsyncIterator[GenerateContentResponse],
     interrupt_flag: asyncio.Event | None,
@@ -695,6 +696,7 @@ async def _default_stream_response_handler(
         raise
 
 
+# NEKO: N08 gemini-fallback — 首候选异常仅记数量与相等关系，不记录正文或改解析结果。
 def _normal_reply_shape(response: GenerateContentResponse, parsed: APIResponse) -> Dict[str, Any] | None:
     """异常形状只记录数量/长度/相等关系，不记录正文、签名、参数或可逆摘要。"""
     candidates = _get_candidates(response)
@@ -1129,6 +1131,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                     await await_task_with_interrupt(stream_task, request.interrupt_flag),
                 )
                 async with aclosing(
+                    # NEKO: N08 gemini-fallback — 默认/自定义流解析共用拦截检查及关闭边界。
                     _check_stream_content_blocks(raw_response_stream, request.interrupt_flag)
                 ) as checked_stream:
                     response, usage_record = await stream_response_handler(checked_stream, request.interrupt_flag)
@@ -1144,6 +1147,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
                     GenerateContentResponse,
                     await await_task_with_interrupt(completion_task, request.interrupt_flag),
                 )
+                # NEKO: N08 gemini-fallback — 非流式也在解析前识别明确拦截，不按正文猜测。
                 _raise_if_prohibited_content(raw_response)
                 response, usage_record = response_parser(raw_response)
                 if request.trace_context and request.trace_context.request_type == "maisaka.replyer":
@@ -1199,6 +1203,7 @@ class GeminiClient(AdapterClient[AsyncIterator[GenerateContentResponse], Generat
             attach_request_snapshot(wrapped_error, snapshot_path)
             raise wrapped_error from exc
         except (ContentBlockedError, EmptyResponseException) as exc:
+            # NEKO: N08 gemini-fallback — 拦截保原失败快照与终态，不当普通空响应重试。
             snapshot_path = await asyncio.to_thread(
                 save_failed_request_snapshot,
                 api_provider=self.api_provider,

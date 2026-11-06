@@ -279,6 +279,7 @@ async def _notify_reply_delivery(tool_ctx, execution, send_results):
         logger.warning("回复发送回执 Hook 失败；不改变已发送结果，不补发")
 
 
+# NEKO: N02 reply-receipt — 回执保实际发送文字与ID，不从预期输出猜测成功。
 def _build_send_result(
     *,
     index: int,
@@ -770,11 +771,13 @@ async def execute_reply(
                         set_quote=segment_set_quote,
                         success=True,
                         message_id=sent_message_id,
+                        # NEKO: N02 reply-receipt — 只记录实际发送文字，媒体不进入文字回执。
                         speech_text="".join(c.text for c in getattr(getattr(sent_message, "raw_message", None), "components", ()) if isinstance(c, TextComponent)),
                     )
                 )
                 previous_sent_message = sent_message
     except Exception:
+        # NEKO: N02 reply-receipt — 部分发送失败也报告已知结果，不补发。
         await _notify_reply_delivery(tool_ctx, extension_execution, send_results)
         logger.exception(f"{tool_ctx.runtime.log_prefix} 发送文字消息时发生异常，目标消息编号={target_message_id}")
         return tool_ctx.build_failure_result(
@@ -783,6 +786,7 @@ async def execute_reply(
             metadata=reply_metadata,
         )
 
+    # NEKO: N02 reply-receipt — 正常收尾通知一次，Hook失败不改变投递结果。
     await _notify_reply_delivery(tool_ctx, extension_execution, send_results)
 
     if not sent:

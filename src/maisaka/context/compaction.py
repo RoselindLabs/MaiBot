@@ -97,6 +97,7 @@ def _neko_internal_control(message):
     ) is not None
 
 
+# NEKO: N04 context-pressure — 只移除可证明归属的控制素材，保真实消息和闭合工具配对。
 def _neko_compaction_items(items, history):
     owned = {
         message.context_item_id for message in history
@@ -120,6 +121,7 @@ def _neko_compaction_items(items, history):
 def message_text_for_compaction(message: LLMContextMessage) -> str:
     """将消息、工具参数和执行结果编码为资料，不重放工具调用或模型内部推理。"""
 
+    # NEKO: N04 context-pressure — 控制事件不作为摘要事实，真实IM仍由原分支编码。
     if _neko_internal_control(message):
         return ""
     if isinstance(message, ModelOutputContextMessage):
@@ -182,14 +184,16 @@ class PlannerRequestSnapshot:
     history: Tuple[LLMContextMessage, ...]
 
 
+# NEKO: N11 focus-recovery — read-only material must never become an executable snapshot.
 @dataclass(frozen=True, slots=True)
 class FocusCompactionTemplate:
-    """NEKO: N11 — prepared read-only material, never an executable Planner snapshot."""
+    """Prepared read-only material, never an executable Planner snapshot."""
 
     context_items: Tuple[ContextItem, ...]
     tool_definitions: Tuple[dict, ...]
 
 
+# NEKO: N11 focus-recovery — finite recovery failure preserves input for a new-input wake.
 class FocusRecoveryError(ValueError):
     """A finite recovery attempt could not safely replace the original input."""
 
@@ -243,12 +247,14 @@ def _build_compaction_request(
     """在线程池构造完整请求，序列化大工具结果和复制图片不占事件循环。"""
     if not removed_messages:
         raise ValueError("没有可压缩的历史内容")
+    # NEKO: N11 focus-recovery — 只读模板无旧历史，完整批次按资料编码而非重放。
     readonly = isinstance(planner_snapshot, FocusCompactionTemplate)
     covered = set() if readonly else {id(message) for message in planner_snapshot.history}
     messages = [*removed_messages, *recent_messages]
     if previous_summary is not None:
         messages.insert(0, previous_summary)
     # 未覆盖资料也可能是首次请求未选中的更早消息；保留时间和角色，避免重放未闭合的工具调用。
+    # NEKO: N04 context-pressure — selective reclamation replaces the sole summary.
     # Selective internal reclamation replaces the sole rolling summary, rather
     # than a chronological prefix. Supply its full source data explicitly even
     # when object identities were already present in the successful request;
@@ -272,7 +278,7 @@ def _build_compaction_request(
         tail_parts.extend(["<conversation_sources>", source_context, "</conversation_sources>"])
     tail = "\n".join([*tail_parts, instruction])
     if readonly:
-        # N11: no old request history or tool protocol is replayed. Only the
+        # NEKO: N11 focus-recovery — no old history or tool protocol is replayed. Only the
         # current complete batch and previous summary are encoded as data above.
         return FocusCompactionTemplate(
             (*deepcopy(planner_snapshot.context_items),
@@ -280,6 +286,7 @@ def _build_compaction_request(
             deepcopy(planner_snapshot.tool_definitions),
         )
     request = planner_snapshot.request.detached_snapshot()
+    # NEKO: N04 context-pressure — 已成功快照也须过滤有归属的临时控制，不改原快照。
     request.context_items = _neko_compaction_items(request.context_items, planner_snapshot.history)
     request.context_items.append(ContextItemBuilder().set_role(RoleType.User).add_text_content(tail).build())
     # 原生请求的工具定义、顺序和调用模式会影响前缀，全部继承 Planner；ACP 摘要不挂载工具。
@@ -305,6 +312,7 @@ async def build_context_summary(
         max_summary_chars=max_summary_chars, source_context=source_context,
         include_covered_data=include_covered_data,
     )
+    # NEKO: N11 focus-recovery — 复用Planner模型生成摘要，只消费文本，不执行工具。
     if isinstance(request, FocusCompactionTemplate):
         client = LLMServiceClient(task_name="planner", request_type="maisaka.context_compaction", session_id=session_id)
         result = await client.generate_response_with_context(

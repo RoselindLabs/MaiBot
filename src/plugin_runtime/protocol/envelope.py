@@ -184,6 +184,7 @@ class HelloResponsePayload(BaseModel):
     """Host 版本号"""
     reason: str = Field(default="", description="拒绝原因 (若 accepted=False)")
     """拒绝原因 (若 `accepted`=`False`)"""
+    # NEKO: N09 rpc-media — 响应也显式确认能力，缺省空表保旧端legacy。
     transport_capabilities: List[str] = Field(default_factory=list, max_length=16)
 
 

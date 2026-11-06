@@ -33,6 +33,7 @@ def self_message_identity(message: "SessionMessage") -> tuple | None:
     )
 
 
+# NEKO: N01 identity-echo — 发送/回传任意先后均按正式身份查重，不按正文。
 def has_self_message(history: list[LLMContextMessage], message: "SessionMessage") -> bool:
     """在已有单份历史中查找自身消息，涵盖发送与回传的两种到达顺序。"""
     identity = self_message_identity(message)

@@ -6,28 +6,46 @@
 首个维护基线 1.3.15/062d45cf 的历史与初始补丁提交保留。
 软件包仍使用上游版本号，具体修订以 **upstream SHA + fork SHA** 识别；未向官方 PyPI 包名发布。
 
-## 当前源码与阅读入口（2026-11-05）
+## 当前源码与阅读入口（2026-11-06）
 
 | 边界 | 当前依据 |
 | --- | --- |
 | 上游与依赖 | MaiBot1.3.19／SDK2.20.0／Dashboard1.9.13，固定uv.lock，DB46 |
-| 维护源码 | `neko/main`；用`git rev-parse HEAD`取得实际修订，最近子代理交接业务提交`019314848` |
+| 维护源码 | `neko/main`；用`git rev-parse HEAD`取得实际修订；本地业务基线为Focus `3e95892ee`及N15 `5450b412f`，不代表实例部署 |
 | 来源登记 | `neko-patches.json`纳管30源＋锁31项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
 | 配套适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
 | 发布状态 | 本仓只声明源码行为；实例实际部署SHA、待发布差异与备份以私有运维登记为准，不用本文旧发布快照推断线上状态 |
 
 本文件维护行为合同、验证和升级边界；实例的端口、PID、运行配置、备份路径及详细日期验收
 留在私有运维记录。下文旧提交是差异首次交付证据，不是多个“当前版本”。
-先读[本次私聊修复](#私聊自身回传与相邻归属修复2026-11-04)，再按需读[验证](#本地验证与-ci)、
+先读下方待发布范围及[升级补丁台账](#升级补丁台账稳定id)，再按需读[验证](#本地验证与-ci)、
 [上游同步](#分支与上游同步)和[发布边界](#发布与迁移边界)。
 
 ## 维护差异
+
+### 本轮增量发布范围（2026-11-06）
+
+本轮交接的实例基准为`30f87adf2`；相对它，源码待发布业务为N11有限只读恢复
+（`3e95892ee`）和N15普通聊天有限打断（`5450b412f`），另有本轮标记、来源校验和文档整理。
+当前来源集合为30个Python源＋`uv.lock`共31项；标记整理只改变注释/文档与维护测试，不改变业务策略。
+用户已授权整理后推送、精确SHA CI及上线；这只是发布授权，**完成状态仍以实例登记为准**。
+精确目标取本次提交SHA，不在本文写自指HEAD；部署前重新核对`deployed..target`，保留已批准Focus合同，
+不引入Token预算机制，不修改模型、人设、权限或实际配置。N11/N15边界和撤销条件见台账与下文合同。
 
 ### 升级补丁台账（稳定ID）
 
 以下条目均为当前维护线保留项，**未声明已被上游等价吸收**。表中路径相对仓库根；精确源文件集合/摘要以
 `neko-patches.json`为准。ID跟随行为而非行号或版本；文件重构时更新入口，不重新编号。
-源码中只在容易与上游混淆的局部使用`NEKO: <ID>`短注释，不用整文件BEGIN/END包围或重复整段上游代码。
+源码统一使用`NEKO: Nxx slug — 原因/必须保留边界`短注释，沿所在源码的语言风格。
+每个独立修改块标一次：新增入口、已有函数局部分支、初始化与清理点应就近可定位；
+连续实现内不逐行堆标记，不用整文件BEGIN/END包围，不复制平行patch文件。
+`pytests/neko/test_source_policy.py`从本表读取ID/slug，解析Python真实注释及模块/类/函数文档字符串，
+禁止未知ID、slug错配及缺边界说明，已纳管Python源必须有标记；普通字符串/提示词不算标记。
+同文件允许多个ID；`uv.lock`仅走原字节hash校验，Dashboard沿独立制品合同。
+原门禁继续验证30源＋锁31项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
+本轮标记维护验证：19个产品文件在精确归一化两处docstring标记文字后，AST及非注释token完全一致；
+锁定Windows Python3.12环境、固定TTS fixture下标准隔离门禁605项通过，含新增8项标记校验/反例。
+源码hash同步更新，Dashboard源码/依赖未变；该本地验证不代替发布目标精确SHA的CI和实例验收。
 
 | ID | 行为与合并入口 | 必须保留的验证 | 可撤销条件 |
 | --- | --- | --- | --- |
@@ -47,6 +65,26 @@
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
 | N15 bounded-steering | 普通聊天有限消息打断：`src/maisaka/reasoning_engine.py`、配置说明`src/config/official_configs.py` | `pytests/neko/test_bounded_steering.py`实际循环、准备竞态、取消/失败清理、关闭开关 | 上游跨重请求限制消息打断且保留排队输入与外部取消；共享Focus合同不变 |
 
+**稳定入口补充（不依赖行号；测试与撤销条件见同ID表项）**：
+
+- **N11**：`MaisakaChatLoopService.chat_loop_step`的历史归属记录/只读准备分支；
+  `FocusCompactionTemplate`、`FocusRecoveryError`、`_build_compaction_request`、`build_context_summary`；
+  `FocusGroupRuntime.__init__`、`state`、`is_member_valid`、`_set_stage`、`run`、`_run_turn`、
+  `_build_references`、`_recovery_identity`、`_recover_context`。核查新输入水位、参考后接入压力、
+  全批原子提交和失败撤快照；常规`_compact`失败丢旧原文合同与只读恢复不可混合。
+- **N15**：`MaisakaReasoningEngine.__init__`、`_run_interruptible_planner`、`run_loop`的finally；
+  `ChatReplyTimingConfig.planner_message_steering`字段说明。初始化/成功重置/消息中止计数/外部取消/
+  service标记清理/回合清理一起核查；只改说明不改变开关默认值。
+- **N01**补充`MaisakaReasoningEngine._ingest_messages`、`_build_history_message`，以及
+  `self_message_identity`、`has_self_message`；恢复、发送回传和实时接入均保正式身份去重。
+- **N04**：`_neko_internal_control`、`_neko_compaction_items`、`message_text_for_compaction`、
+  `_build_compaction_request`、`plan_internal_history_pressure`、`HistoryGuards.unchanged`及
+  `MaisakaReasoningEngine._compact_private_internal_history`/`_end_cycle`/`run_loop`。
+- **N02/N05/N08/N09**相邻接入：`_notify_reply_delivery`/`_build_send_result`/`execute_reply`；
+  `ComponentQueryService._build_trusted_tool_context`与`_host_context`注入分支；
+  `_raise_if_prohibited_content`/`_check_stream_content_blocks`/`_normal_reply_shape`与`LLMOrchestrator`备用分支；
+  `encode_frame`/`decode_frame`与`RPCServer`/`RPCClient`连接初始化、握手、收发及清理。
+
 **每次正式tag合并的核对记录**：在集成提交说明中逐ID记`keep / port / retire`及上游SHA、差异入口和验证结果。
 只在等价证据成立后retire；同时移除对应维护注释、更新来源hash/集合及行为文档，保历史提交。
 一个文件可能承载多个ID，不能整文件选择ours/theirs。测试通过不代替确认上游是否改变了用户策略。
@@ -54,13 +92,13 @@
 **三个版本分开看**：上游基线来自清单`upstream_commit`；维护HEAD来自Git；部署SHA来自实例来源登记。
 部署后按`deployed..HEAD`列实际未发布差异，纯文档前移不列为待上线业务。本文不写自指HEAD或假定推送即部署。
 
-### N15 普通快速反应有限打断（2026-11-06，本地源码）
+### N15 普通快速反应有限打断（2026-11-06）
 
 - 普通ReasoningEngine在有效Planner决策完成前最多因消息打断两次，计数跨bind和同轮重请求；之后请求不绑定消息中断，准备期间和在途新消息保留到既有下一边界处理。
 - 成功请求重置预算；逻辑回合结束、异常或取消在finally清理。外部task取消仍有效，包括准备竞态中适配器将取消转为ReqAbortException的交错；没有给工具执行加重试或中断。
 - 保现有防抖、@、wait、最大内部轮次与开关默认false；不新增配置字段或Token预算。共享Focus源码保持，仅配置描述澄清其强制流式、不提供普通消息打断/wait提前结束。
 - 事件驱动合成测试运行真实run_loop、请求准备/中断/消息接入链与Controller，以无网络模型事件替身验证连续消息仍可完成决策、成功后恢复预算、准备竞态、外部取消、失败退出、消息保留和子任务结束。上下文IO、动作执行与监控为替身，不代表真实模型一定成功、QQ送达或线上问题已验收。
-- 新纳管配置描述源，当前30源＋锁31项；本次仅本地源码交付，未push、部署、重启或修改实例配置。
+- 新纳管配置描述源，当前30源＋锁31项；首次交付仅本地提交，后续发布授权与范围见上方本轮增量登记。
 - Windows Python3.12锁定环境：`uv sync --locked --group dev`通过；普通中断定向9项通过，标准`neko_check.py`隔离禁网络门禁597项通过（含原Focus回归和固定TTS消费者）。追加无残留asyncio任务断言后定向9项再次通过；未执行Linux CI或真实模型请求。
 
 ### N12 子代理检索与证据交接（2026-11-05）
@@ -68,7 +106,7 @@
 子代理提示补充：已有来源优先读取核实、重复搜索无新证据及时收尾、找图优先预览配图而非猜文件名；
 最终网络结论保关键URL，区分搜索摘录/已读正文/已预览图片，不把不同格式当不同构图。
 只调整子代理工作提示，模型、人设、权限、轮数和工具执行保持；提示不保证模型必然遵从。
-新增`src/maisaka/builtin_tool/subagent.py`来源登记，当前29源＋锁30项；上线以实例发布记录为准。
+新增`src/maisaka/builtin_tool/subagent.py`来源登记，当批29源＋锁30项；当前总数见顶部，实例状态以发布记录为准。
 
 ### N11 Focus 请求失败恢复（2026-11-05）
 
@@ -80,7 +118,7 @@
 - 工具准备和聊天参考构造有独立准备阶段；不更改模型超时、Focus策略或压缩失败策略。
 - 来源清单当批增加`src/maisaka/focus/group_runtime.py`后为28源＋锁29项；当前总数见顶部来源登记，实际部署以实例发布记录为准。
 
-#### 有限只读恢复（2026-11-06，本地源码）
+#### 有限只读恢复（2026-11-06）
 
 - 首次请求、失败撤销执行快照及检查点恢复后，复用真实请求准备链取得只读压缩模板；模板不成为可执行快照、不落盘，失败后按当前成员与配置重建。
 - 参考准备后接入的就绪消息也检查压力。沿既有`max_context_size`规划完整条目，单次至多8批，顺序合并前序摘要；每批不超过既有消息条数，近期原文保留。没有新增Token计量、容量配置或模型预算；超长单条、不可拆批次或必要模板仍可能失败。

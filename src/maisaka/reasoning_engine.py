@@ -160,7 +160,9 @@ class MaisakaReasoningEngine:
         self._last_reasoning_content: str = ""
         self._active_logical_turn_id: str | None = None
         self._turn_passive_replyer: Optional[bool] = None
+        # NEKO: N04 context-pressure — 每逻辑回合只尝试一次内部回收，避免失败摘要循环。
         self._internal_pressure_attempted = False
+        # NEKO: N15 bounded-steering — 普通Planner打断计数跨请求绑定，决策/回合结束清零。
         self._planner_message_interrupts = 0
 
     @property
@@ -227,9 +229,11 @@ class MaisakaReasoningEngine:
             )
             # 在完整请求期间监听中断，流暂时没有数据时也能取消，不采用迟到的输出。
             response = await await_task_with_interrupt(planner_task, interrupt_flag)
+            # NEKO: N15 bounded-steering — 成功决策恢复预算，不在重绑时提前清零。
             self._planner_message_interrupts = 0
             return response
         except ReqAbortException:
+            # NEKO: N15 bounded-steering — count message aborts only; external cancellation wins.
             # The request adapter may translate cancellation while draining an already
             # interrupted child. An external cancellation must still end this loop.
             if asyncio.current_task().cancelling():
@@ -238,6 +242,7 @@ class MaisakaReasoningEngine:
                 self._planner_message_interrupts += 1
             raise
         finally:
+            # NEKO: N15 bounded-steering — 受保护请求无绑定也须清理service标记。
             if interrupt_flag is not None:
                 self._runtime._planner_interrupt.unbind(interrupt_flag)
             self._runtime._chat_loop_service.set_interrupt_flag(None)
@@ -977,6 +982,7 @@ class MaisakaReasoningEngine:
                     self._turn_passive_replyer = global_config.experimental.passive_replyer
                     self._runtime._chat_loop_service.passive_replyer_override = self._turn_passive_replyer
                     self._active_logical_turn_id = turn_start_context.logical_turn_id or uuid.uuid4().hex
+                    # NEKO: N04 context-pressure — 新逻辑回合才恢复内部回收机会。
                     self._internal_pressure_attempted = False
                     if force_continue_reason := self._runtime._consume_forced_turn_reason():
                         logger.info(f"{self._runtime.log_prefix} {force_continue_reason}")
@@ -1050,6 +1056,7 @@ class MaisakaReasoningEngine:
                             if not state.planner_interrupted:
                                 round_index += 1
                 finally:
+                    # NEKO: N15 bounded-steering — 回合结束/异常/取消均清零，保下回合预算。
                     self._planner_message_interrupts = 0
                     self._turn_passive_replyer = None
                     self._runtime._chat_loop_service.passive_replyer_override = None
@@ -1183,6 +1190,7 @@ class MaisakaReasoningEngine:
     ) -> Optional[LLMContextMessage]:
         """根据真实消息构造对应的上下文消息。"""
 
+        # NEKO: N01 identity-echo — 自身回传保自身角色，非自身/通知沿原身份路径。
         if (
             message.account_id and message.message_info.user_info.user_id == message.account_id
             and source_kind == "user" and not message.is_notify
@@ -1325,6 +1333,7 @@ class MaisakaReasoningEngine:
     async def _end_cycle(self, cycle_detail: CycleDetail, only_long_execution: bool = True) -> CycleDetail:
         """结束并记录一轮 Maisaka 思考循环。"""
         await self._post_process_chat_history_after_cycle(cycle_detail)
+        # NEKO: N04 context-pressure — 仅执行过Planner的周期接入私聊内部压力回收。
         if "planner" in cycle_detail.time_records:
             await self._compact_private_internal_history(cycle_detail)
         cycle_detail.end_time = time.time()

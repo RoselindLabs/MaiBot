@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 
 logger = get_logger("maisaka_focus")
 MAX_SEEN_MESSAGES = 20000
-# NEKO: N11 — finite recovery per new-input wake, not a model capacity limit.
+# NEKO: N11 focus-recovery — finite recovery per new-input wake, not a model capacity limit.
 MAX_FOCUS_RECOVERY_BATCHES = 8
 
 
@@ -83,6 +83,7 @@ class FocusGroupRuntime:
         self._worker: Optional[asyncio.Task] = None
         self._closed = False
         self._failed = False
+        # NEKO: N11 focus-recovery — 失败唤醒水位仅驻内存，不把旧事件当新输入。
         self._retry_after_sequence: Optional[int] = None
         self._hydrating = False
         self.restored_session_ids: Set[str] = set()
@@ -115,6 +116,7 @@ class FocusGroupRuntime:
 
     @property
     def state(self) -> str:
+        # NEKO: N11 focus-recovery — 等新输入期间公开失败态，不伪装运行或主动重试。
         if self._failed or self._retry_after_sequence is not None:
             return "failed"
         if self._wait_until is not None:
@@ -229,6 +231,7 @@ class FocusGroupRuntime:
         return (
             runtime._running
             and runtime._focus_group is self
+            # NEKO: N11 focus-recovery — 正式会话失效即隔离，不借旧成员授权或构造参考。
             and chat_manager.get_session_by_session_id(runtime.session_id) is not None
             and focus_mode_manager.is_enabled_for_session(
                 runtime.session_id, is_group_chat=runtime.chat_stream.is_group_session
@@ -398,6 +401,7 @@ class FocusGroupRuntime:
             self._worker = asyncio.create_task(self.run())
 
     def _set_stage(self, stage: str, detail: str) -> None:
+        # NEKO: N11 focus-recovery — 成员监控同步请求失败态，保留原等待语义。
         failed = self._failed or self._retry_after_sequence is not None
         self._state = "failed" if failed else ("wait" if self._wait_until is not None else "running")
         for runtime in self.members.values():
@@ -527,6 +531,7 @@ class FocusGroupRuntime:
             if self._closed or self._wait_until is not None:
                 return
             self._take_ready_inputs()
+            # NEKO: N11 focus-recovery — 准备阶段独立显示，不混同模型请求耗时。
             self._set_stage("准备", "检查共享工具与聊天参考")
             await self._compact()
             await self.tools.refresh()
@@ -544,6 +549,7 @@ class FocusGroupRuntime:
             started = time.time()
             self._planner_started_at = started
             try:
+                # NEKO: N11 focus-recovery — recover newly admitted backlog before requesting.
                 # Reference preparation may have admitted another backlog. This
                 # path also works before any successful request / after restore.
                 await self._recover_context(references)
@@ -561,7 +567,7 @@ class FocusGroupRuntime:
                 NetworkConnectionError, RespNotOkException, RespParseException,
                 FocusRecoveryError,
             ) as exc:
-                # 仅请求边界可恢复；工具副作用、持久化错误与取消仍沿原停止路径。
+                # NEKO: N11 focus-recovery — 仅请求失败撤销快照，工具副作用/持久化/取消不重试。
                 self._planner_ended_at = time.time()
                 self._service.planner_request_snapshot = None
                 self._retry_after_sequence = self._sequence
@@ -621,6 +627,7 @@ class FocusGroupRuntime:
         references = []
         for sid, messages in grouped.items():
             member = self.members[sid]
+            # NEKO: N11 focus-recovery — 参考构造排除失效成员，禁止借旧正式身份继续请求。
             if not self.is_member_valid(member):
                 continue
             injected = await member._reasoning_engine._build_planner_injected_user_messages(
@@ -931,6 +938,7 @@ class FocusGroupRuntime:
             if len(runtime._chat_history) > keep:
                 runtime._chat_history = runtime._chat_history[-keep:]
 
+    # NEKO: N11 focus-recovery — compare membership/config in memory; never log config content.
     def _recovery_identity(self) -> tuple:
         """Read-set identity, kept only in memory; config content is never logged."""
         return (
@@ -940,8 +948,9 @@ class FocusGroupRuntime:
             sha256((global_config.model_dump_json() + model_config.model_dump_json()).encode()).digest(),
         )
 
+    # NEKO: N11 focus-recovery — bounded all-or-nothing summary; preserve inputs/watermarks on failure.
     async def _recover_context(self, references: List[str]) -> None:
-        """N11: all-or-nothing, bounded read-only compaction of an undecided backlog.
+        """All-or-nothing, bounded read-only compaction of an undecided backlog.
 
         The legacy _compact failure/drop contract is deliberately separate.
         New arrivals stay pending; this method never advances decision watermarks.

@@ -74,6 +74,7 @@ class RPCClient:
         self._running: bool = False
         self._recv_task: Optional[asyncio.Task[None]] = None
         self._background_tasks: Set[asyncio.Task[Any]] = set()
+        # NEKO: N09 rpc-media — 协商状态仅属当前连接，发送编码共用背压锁。
         self._hook_media_enabled = False
         self._encode_lock = asyncio.Lock()
 
@@ -113,6 +114,7 @@ class RPCClient:
         """
         self._hook_media_enabled = False
         client = create_transport_client(self._host_address)
+        # NEKO: N09 rpc-media — 每次连接重新协商且校验hello关联，旧端保持legacy。
         with diagnostic_stage("runner.ipc_connect"):
             self._connection = await client.connect()
         connection = self._require_connection()
@@ -160,6 +162,7 @@ class RPCClient:
         """断开与 Host 的连接并清理状态。"""
         self._running = False
         self._hook_media_enabled = False
+        # NEKO: N09 rpc-media — 主动断开清协商状态，不能带入下次连接。
 
         if self._recv_task is not None:
             self._recv_task.cancel()
@@ -260,6 +263,7 @@ class RPCClient:
 
     async def _recv_loop(self) -> None:
         """持续接收 Host 发来的消息并分发。"""
+        # NEKO: N09 rpc-media — 固定连接恢复字段，坏帧不分发不重放，断连失败所有pending。
         connection = self._connection
         media_enabled = self._hook_media_enabled
         while self._running and connection is not None and self._connection is connection and not connection.is_closed:
@@ -340,6 +344,7 @@ class RPCClient:
         Args:
             envelope: 请求信封。
         """
+        # NEKO: N09 rpc-media — 响应沿原连接/协商编码，Hook关联不匹配即拒绝。
         connection = connection or self._connection
         if media_enabled is None:
             media_enabled = self._hook_media_enabled
