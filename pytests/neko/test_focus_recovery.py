@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from pytests.maisaka.test_focus_group_runtime import setup_group, _chat_history, _response
+from pytests.maisaka.test_focus_group_runtime import setup_group as setup_group, _chat_history, _response
 from src.common.data_models.llm_service_data_models import LLMResponseResult
 from src.config.config import global_config
 from src.llm_models.exceptions import RespNotOkException
@@ -48,6 +48,7 @@ def recovery(setup_group, monkeypatch):
                 raise RespNotOkException(400)
             from src.config.model_configs import ModelInfo
             from src.llm_models.model_client.base_client import ResponseRequest
+
             result = LLMResponseResult.from_portable_output(response="done")
             result.request_snapshot = ResponseRequest(
                 model_info=ModelInfo(model_type="llm", name="planner", model_identifier="remote", api_provider="test"),
@@ -70,10 +71,17 @@ def recovery(setup_group, monkeypatch):
                 await state.during_summary()
             if state.summary_failure:
                 raise state.summary_failure
-            return LLMResponseResult.from_portable_output(response=json.dumps({
-                "topics": ["A and B source facts"], "background": [], "progress": [],
-                "pending": ["undecided input"], "agreements": [],
-            }))
+            return LLMResponseResult.from_portable_output(
+                response=json.dumps(
+                    {
+                        "topics": ["A and B source facts"],
+                        "background": [],
+                        "progress": [],
+                        "pending": ["undecided input"],
+                        "agreements": [],
+                    }
+                )
+            )
 
     monkeypatch.setattr(service, "_get_llm_chat_client", lambda kind: CapacityClient())
     monkeypatch.setattr(compaction, "LLMServiceClient", SummaryClient)
@@ -103,9 +111,11 @@ async def test_worker_recovers_without_successful_snapshot(recovery, monkeypatch
         enqueue(group, 8, 2)
     elif mode == "during_reference":
         enqueue(group, 1)
+
         async def references():
             enqueue(group, 8, 1)
             return []
+
         group._build_references = references
     else:
         enqueue(group)
@@ -115,9 +125,11 @@ async def test_worker_recovers_without_successful_snapshot(recovery, monkeypatch
         store.save(group.entries, {"sequence": group._sequence})
         group.entries = store.load()["entries"]
     completed = asyncio.Event()
+
     async def checkpoint():
         if group._considered.get("B", 0) >= 8:
             completed.set()
+
     group.checkpoint = checkpoint
     group._ensure_worker()
     try:
@@ -161,6 +173,7 @@ async def test_late_summary_cannot_commit(recovery, monkeypatch, change):
     enqueue(group)
     group._take_ready_inputs()
     before = list(group.entries)
+
     async def change_state():
         if change == "generation":
             group._generation += 1
@@ -174,6 +187,7 @@ async def test_late_summary_cannot_commit(recovery, monkeypatch, change):
             monkeypatch.setattr(global_config.chat, "max_context_size", 7)
         else:
             group.entries[0].inputs.clear()
+
     state.during_summary = change_state
     with pytest.raises(FocusRecoveryError):
         await group._recover_context([])
@@ -202,9 +216,11 @@ async def test_later_batch_failure_does_not_commit_partial_summary(recovery):
     enqueue(group, 20)
     group._take_ready_inputs()
     before = list(group.entries)
+
     async def fail_second_batch():
         if len(state.summaries) == 2:
             state.summary_failure = RespNotOkException(400)
+
     state.during_summary = fail_second_batch
     with pytest.raises(FocusRecoveryError):
         await group._recover_context([])
@@ -219,8 +235,10 @@ async def test_arrival_during_summary_stays_unconsumed(recovery):
     group, _, _, state = recovery
     enqueue(group)
     group._take_ready_inputs()
+
     async def arrival():
         enqueue(group, 1, 8)
+
     state.during_summary = arrival
     await group._run_turn()
     assert group._considered == {"A": 7, "B": 8}
@@ -237,15 +255,19 @@ async def test_hook_material_is_retained_or_ownership_rejected(recovery, monkeyp
     enqueue(group)
     group._take_ready_inputs()
     before = list(group.entries)
+
     class Hooks:
         async def invoke_hook(self, name, **kwargs):
             items = kwargs["items"]
             if rewrite:
                 items.pop(1)
-            items.extend(serialize_prompt_items([
-                ContextItemBuilder().set_role(RoleType.User).add_text_content("hook-owned-reference").build()
-            ]))
+            items.extend(
+                serialize_prompt_items(
+                    [ContextItemBuilder().set_role(RoleType.User).add_text_content("hook-owned-reference").build()]
+                )
+            )
             return SimpleNamespace(kwargs=kwargs)
+
     monkeypatch.setattr(group._service, "_get_runtime_manager", lambda: Hooks())
     if rewrite:
         with pytest.raises(FocusRecoveryError):

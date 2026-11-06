@@ -28,26 +28,44 @@ class LoopHarness:
         self.preparations = 0
         self.failure = None
         self.runtime = SimpleNamespace(
-            _running=True, _internal_turn_queue=asyncio.Queue(),
-            _agent_state="running", _STATE_RUNNING="running", _STATE_WAIT="wait",
-            _planner_interrupt=PlannerInterruptController(), _chat_history=[],
+            _running=True,
+            _internal_turn_queue=asyncio.Queue(),
+            _agent_state="running",
+            _STATE_RUNNING="running",
+            _STATE_WAIT="wait",
+            _planner_interrupt=PlannerInterruptController(),
+            _chat_history=[],
             message_cache=[],
-            _max_context_size=100, _max_internal_rounds=3, _cycle_counter=1,
-            _consecutive_wait_count=0, session_id="synthetic", log_prefix="[test]",
+            _max_context_size=100,
+            _max_internal_rounds=3,
+            _cycle_counter=1,
+            _consecutive_wait_count=0,
+            session_id="synthetic",
+            log_prefix="[test]",
             _has_pending_messages=lambda: bool(self.pending),
             _wait_for_message_quiet_period=AsyncMock(),
-            _mark_message_turn_unscheduled=Mock(), _collect_pending_messages=self.collect,
-            _consume_forced_turn_reason=lambda: None, _start_planner_continuation=Mock(),
-            _update_stage_status=Mock(), _enter_stop_state=Mock(), _log_internal_loop_cancelled=Mock(),
+            _mark_message_turn_unscheduled=Mock(),
+            _collect_pending_messages=self.collect,
+            _consume_forced_turn_reason=lambda: None,
+            _start_planner_continuation=Mock(),
+            _update_stage_status=Mock(),
+            _enter_stop_state=Mock(),
+            _log_internal_loop_cancelled=Mock(),
         )
         self.runtime._chat_loop_service = SimpleNamespace(
-            set_interrupt_flag=Mock(), chat_loop_step=self.model,
+            set_interrupt_flag=Mock(),
+            chat_loop_step=self.model,
         )
         self.engine = MaisakaReasoningEngine(self.runtime)
-        self.engine._prepare_turn_start_context = AsyncMock(return_value=TurnStartContext(
-            [SimpleNamespace(message_id="initial")], SimpleNamespace(message_id="initial"),
-            False, False, False,
-        ))
+        self.engine._prepare_turn_start_context = AsyncMock(
+            return_value=TurnStartContext(
+                [SimpleNamespace(message_id="initial")],
+                SimpleNamespace(message_id="initial"),
+                False,
+                False,
+                False,
+            )
+        )
         self.engine._start_cycle_round = AsyncMock(return_value=(SimpleNamespace(time_records={}), "round"))
         self.engine._refresh_visual_placeholders_for_cycle = AsyncMock()
         self.engine._post_process_chat_history_after_cycle = AsyncMock()

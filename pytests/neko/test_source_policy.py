@@ -27,15 +27,17 @@ def test_all_registered_source_bytes_match():
 
 def _python_maintenance_markers(source):
     """Read comments and actual docstrings, never runtime strings or prompts."""
-    texts = [token.string for token in tokenize.generate_tokens(io.StringIO(source).readline)
-             if token.type == tokenize.COMMENT]
+    texts = [
+        token.string
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type == tokenize.COMMENT
+    ]
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             doc = ast.get_docstring(node, clean=False)
             if doc is not None:
                 texts.append(doc)
-    return [line.split("NEKO:", 1)[1].strip()
-            for text in texts for line in text.splitlines() if "NEKO:" in line]
+    return [line.split("NEKO:", 1)[1].strip() for text in texts for line in text.splitlines() if "NEKO:" in line]
 
 
 def _validate_maintenance_markers(source, ledger, *, required=False):
@@ -74,19 +76,29 @@ def helper():
     """NEKO: N15 bounded-steering — function contract"""
     return "NEKO: N99 invented — also ordinary text"
 '''
-    assert len(_validate_maintenance_markers(
-        source, {"N01": "identity-echo", "N15": "bounded-steering"}, required=True,
-    )) == 3
+    assert (
+        len(
+            _validate_maintenance_markers(
+                source,
+                {"N01": "identity-echo", "N15": "bounded-steering"},
+                required=True,
+            )
+        )
+        == 3
+    )
 
 
-@pytest.mark.parametrize("source,reason", [
-    ('value = "NEKO: N01 identity-echo — string only"', "Missing"),
-    ("# NEKO: N99 invented — unknown", "Unknown"),
-    ("# NEKO: N01 wrong-slug — mismatch", "Unknown"),
-    ("# NEKO: N01 — missing slug", "Malformed"),
-    ("# NEKO: N01 identity-echo — ", "Malformed"),
-    ('def helper():\n    """NEKO: N99 invented — unknown docstring"""', "Unknown"),
-])
+@pytest.mark.parametrize(
+    "source,reason",
+    [
+        ('value = "NEKO: N01 identity-echo — string only"', "Missing"),
+        ("# NEKO: N99 invented — unknown", "Unknown"),
+        ("# NEKO: N01 wrong-slug — mismatch", "Unknown"),
+        ("# NEKO: N01 — missing slug", "Malformed"),
+        ("# NEKO: N01 identity-echo — ", "Malformed"),
+        ('def helper():\n    """NEKO: N99 invented — unknown docstring"""', "Unknown"),
+    ],
+)
 def test_marker_policy_rejects_missing_unknown_or_malformed_markers(source, reason):
     with pytest.raises(AssertionError, match=reason):
         _validate_maintenance_markers(source, {"N01": "identity-echo"}, required=True)
