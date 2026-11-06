@@ -1,12 +1,13 @@
 """将较早的对话压缩为常驻的滚动状态，近期原文继续保留。"""
 
 from dataclasses import dataclass
+from copy import deepcopy
 from typing import Dict, List, Sequence, Tuple
 from pydantic import BaseModel, ConfigDict, field_validator
 import asyncio
 import json
 
-from src.common.data_models.llm_service_data_models import LLMResponseResult
+from src.common.data_models.llm_service_data_models import LLMGenerationOptions, LLMResponseResult
 from src.agent.planner import ACPPlannerSnapshot, generate_planner_response
 from src.common.data_models.message_component_data_model import ReplyComponent
 from src.common.logger import get_logger
@@ -181,6 +182,18 @@ class PlannerRequestSnapshot:
     history: Tuple[LLMContextMessage, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class FocusCompactionTemplate:
+    """NEKO: N11 — prepared read-only material, never an executable Planner snapshot."""
+
+    context_items: Tuple[ContextItem, ...]
+    tool_definitions: Tuple[dict, ...]
+
+
+class FocusRecoveryError(ValueError):
+    """A finite recovery attempt could not safely replace the original input."""
+
+
 def save_compaction_prompt_preview(
     request_messages: Sequence[ContextItem],
     *,
@@ -220,17 +233,18 @@ def save_compaction_prompt_preview(
 def _build_compaction_request(
     removed_messages: Sequence[LLMContextMessage],
     *,
-    planner_snapshot: PlannerRequestSnapshot,
+    planner_snapshot: PlannerRequestSnapshot | FocusCompactionTemplate,
     previous_summary: ContextSummaryMessage | None,
     recent_messages: Sequence[LLMContextMessage],
     max_summary_chars: int,
     source_context: str = "",
     include_covered_data: bool = False,
-) -> ResponseRequest | ACPPlannerSnapshot:
+) -> ResponseRequest | ACPPlannerSnapshot | FocusCompactionTemplate:
     """在线程池构造完整请求，序列化大工具结果和复制图片不占事件循环。"""
     if not removed_messages:
         raise ValueError("没有可压缩的历史内容")
-    covered = {id(message) for message in planner_snapshot.history}
+    readonly = isinstance(planner_snapshot, FocusCompactionTemplate)
+    covered = set() if readonly else {id(message) for message in planner_snapshot.history}
     messages = [*removed_messages, *recent_messages]
     if previous_summary is not None:
         messages.insert(0, previous_summary)
@@ -257,6 +271,14 @@ def _build_compaction_request(
     if source_context:
         tail_parts.extend(["<conversation_sources>", source_context, "</conversation_sources>"])
     tail = "\n".join([*tail_parts, instruction])
+    if readonly:
+        # N11: no old request history or tool protocol is replayed. Only the
+        # current complete batch and previous summary are encoded as data above.
+        return FocusCompactionTemplate(
+            (*deepcopy(planner_snapshot.context_items),
+             ContextItemBuilder().set_role(RoleType.User).add_text_content(tail).build()),
+            deepcopy(planner_snapshot.tool_definitions),
+        )
     request = planner_snapshot.request.detached_snapshot()
     request.context_items = _neko_compaction_items(request.context_items, planner_snapshot.history)
     request.context_items.append(ContextItemBuilder().set_role(RoleType.User).add_text_content(tail).build())
@@ -268,7 +290,7 @@ def _build_compaction_request(
 async def build_context_summary(
     removed_messages: Sequence[LLMContextMessage],
     *,
-    planner_snapshot: PlannerRequestSnapshot,
+    planner_snapshot: PlannerRequestSnapshot | FocusCompactionTemplate,
     previous_summary: ContextSummaryMessage | None,
     recent_messages: Sequence[LLMContextMessage],
     session_id: str,
@@ -283,7 +305,13 @@ async def build_context_summary(
         max_summary_chars=max_summary_chars, source_context=source_context,
         include_covered_data=include_covered_data,
     )
-    if isinstance(request, ACPPlannerSnapshot):
+    if isinstance(request, FocusCompactionTemplate):
+        client = LLMServiceClient(task_name="planner", request_type="maisaka.context_compaction", session_id=session_id)
+        result = await client.generate_response_with_context(
+            context_factory=lambda _client: list(request.context_items),
+            options=LLMGenerationOptions(tool_options=list(request.tool_definitions) or None),
+        )
+    elif isinstance(request, ACPPlannerSnapshot):
         result = await generate_planner_response(
             request.config, session_id, request.context_items, [], history_item_ids=request.history_item_ids,
         )

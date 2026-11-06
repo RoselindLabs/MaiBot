@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from copy import deepcopy
 from datetime import datetime
+from hashlib import sha256
 from html import escape
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Set, Tuple
 
@@ -16,7 +18,7 @@ from src.chat.message_receive.chat_manager import chat_manager
 from src.common.logger import get_logger
 from src.common.message_repository import find_messages
 from src.common.utils.utils_config import ChatConfigUtils
-from src.config.config import global_config
+from src.config.config import global_config, model_config
 from src.core.tooling import ToolExecutionResult
 from src.llm_models.exceptions import (
     ContentBlockedError,
@@ -38,13 +40,15 @@ from src.maisaka.context.messages import (
     ToolResultMediaMessage,
 )
 from src.maisaka.context.emoji_candidates import EmojiCandidateMessage
-from src.maisaka.context.compaction import ContextSummaryMessage, build_context_summary
+from src.maisaka.context.compaction import (
+    ContextSummaryMessage, FocusCompactionTemplate, FocusRecoveryError, build_context_summary,
+)
 from src.maisaka.context.post_processor import process_chat_history_after_cycle
 from src.maisaka.mode_policy import build_consecutive_wait_reminders
 from src.maisaka.monitor.events import emit_flow_step, emit_planner_snapshot
 from src.maisaka.tool_result_condenser import condense_tool_result, should_condense_tool_result
 
-from .context import FocusCheckpointStore, FocusContextEntry
+from .context import FocusCheckpointStore, FocusContextEntry, serialize_message
 from .tools import FocusToolRouter
 
 if TYPE_CHECKING:
@@ -52,6 +56,8 @@ if TYPE_CHECKING:
 
 logger = get_logger("maisaka_focus")
 MAX_SEEN_MESSAGES = 20000
+# NEKO: N11 — finite recovery per new-input wake, not a model capacity limit.
+MAX_FOCUS_RECOVERY_BATCHES = 8
 
 
 class FocusChatLoopService(MaisakaChatLoopService):
@@ -538,6 +544,10 @@ class FocusGroupRuntime:
             started = time.time()
             self._planner_started_at = started
             try:
+                # Reference preparation may have admitted another backlog. This
+                # path also works before any successful request / after restore.
+                await self._recover_context(references)
+                history = self.history
                 response = await self._service.chat_loop_step(
                     history,
                     tool_definitions=self.tools.definitions(),
@@ -549,6 +559,7 @@ class FocusGroupRuntime:
             except (
                 ContentBlockedError, EmptyResponseException, ModelAttemptFailed,
                 NetworkConnectionError, RespNotOkException, RespParseException,
+                FocusRecoveryError,
             ) as exc:
                 # 仅请求边界可恢复；工具副作用、持久化错误与取消仍沿原停止路径。
                 self._planner_ended_at = time.time()
@@ -919,6 +930,123 @@ class FocusGroupRuntime:
             keep = max(20, runtime._max_context_size * 2)
             if len(runtime._chat_history) > keep:
                 runtime._chat_history = runtime._chat_history[-keep:]
+
+    def _recovery_identity(self) -> tuple:
+        """Read-set identity, kept only in memory; config content is never logged."""
+        return (
+            self._generation, self._closed,
+            tuple((sid, id(runtime), runtime.session_name, self.is_member_valid(runtime))
+                  for sid, runtime in self.members.items()),
+            sha256((global_config.model_dump_json() + model_config.model_dump_json()).encode()).digest(),
+        )
+
+    async def _recover_context(self, references: List[str]) -> None:
+        """N11: all-or-nothing, bounded read-only compaction of an undecided backlog.
+
+        The legacy _compact failure/drop contract is deliberately separate.
+        New arrivals stay pending; this method never advances decision watermarks.
+        """
+        history = self.history
+        plan = process_chat_history_after_cycle(
+            history, max_context_size=self.max_context_size, consume_references=False,
+        )
+        if not plan.removed_messages:
+            return
+        removed_ids = {id(message) for message in plan.removed_messages}
+        snapshot = list(self.entries)
+        split = 0
+        for entry in snapshot:
+            if not all(id(message) in removed_ids or isinstance(message, ContextSummaryMessage) for message in entry.messages):
+                break
+            split += 1
+        if not split:
+            raise FocusRecoveryError("共享上下文无法按完整条目压缩，输入已保留")
+        old = snapshot[:split]
+        batches: List[List[FocusContextEntry]] = []
+        size = 0
+        for entry in old:
+            cost = max(1, entry.size)
+            if cost > self.max_context_size:
+                raise FocusRecoveryError("单个完整条目超过恢复条数限制，输入已保留")
+            if not batches or size + cost > self.max_context_size:
+                batches.append([])
+                size = 0
+            batches[-1].append(entry)
+            size += cost
+        if len(batches) > MAX_FOCUS_RECOVERY_BATCHES:
+            raise FocusRecoveryError("共享上下文超过本次有限恢复批次，输入已保留")
+
+        identity = self._recovery_identity()
+        # Copy semantic material and metadata before the first await. Entry identity
+        # alone is insufficient because tool/description updates can mutate it.
+        def read_material() -> list:
+            return deepcopy([
+                (entry.session_ids, entry.progress, entry.inputs,
+                 [serialize_message(message) for message in entry.messages])
+                for entry in self.entries
+            ])
+
+        material = read_material()
+
+        def still_current() -> bool:
+            return (
+                identity == self._recovery_identity()
+                and len(snapshot) == len(self.entries)
+                and all(a is b for a, b in zip(snapshot, self.entries, strict=True))
+                and material == read_material()
+            )
+
+        self._set_stage("上下文压缩", "准备只读材料，按完整片段有限恢复")
+        try:
+            template = await self._service.chat_loop_step(
+                history, tool_definitions=self.tools.definitions(),
+                injected_user_messages=[self._roster(), self.tools.deferred_notice(), *references],
+                tail_user_messages=build_consecutive_wait_reminders(self._consecutive_waits),
+                max_context_size=max(self.max_context_size, sum(m.count_in_context for m in history) + 1),
+                prepare_focus_compaction=True,
+            )
+            if not isinstance(template, FocusCompactionTemplate) or not still_current():
+                raise FocusRecoveryError("共享压缩材料已失效")
+            summary = next((m for m in reversed(history) if isinstance(m, ContextSummaryMessage)), None)
+            for batch in batches:
+                sources = [m for entry in batch for m in entry.messages if not isinstance(m, ContextSummaryMessage)]
+                if not sources:
+                    continue
+                summary = await build_context_summary(
+                    sources, planner_snapshot=template, previous_summary=summary,
+                    recent_messages=[], source_context="\n".join(
+                        f"session_ids={sorted(entry.session_ids)}; "
+                        f"messages={[(message.timestamp.isoformat(), message.source) for message in entry.messages]}"
+                        for entry in batch
+                    ),
+                    session_id=self.scope_id,
+                    max_summary_chars=global_config.chat.context_compaction_summary_max_chars,
+                )
+                if not still_current():
+                    raise FocusRecoveryError("共享压缩结果已失效")
+            if summary is None or not still_current():
+                raise FocusRecoveryError("共享压缩未生成有效摘要")
+        except asyncio.CancelledError:
+            raise
+        except FocusRecoveryError:
+            raise
+        except Exception as exc:
+            raise FocusRecoveryError(
+                f"共享上下文恢复失败（{type(exc).__name__}），原输入与水位已保留"
+            ) from exc
+
+        watermarks: Dict[str, int] = {}
+        inputs: Dict[str, List[Tuple[int, str]]] = {}
+        related = set().union(*(entry.session_ids for entry in old))
+        for entry in old:
+            for sid, sequence in entry.progress.items():
+                watermarks[sid] = max(watermarks.get(sid, 0), sequence)
+            for sid, records in entry.inputs.items():
+                inputs.setdefault(sid, []).extend(records)
+        names = [self.members[sid].session_name if sid in self.members else sid for sid in sorted(related)]
+        summary.display_prefix = f"[Focus 上下文状态摘要 来源：{'、'.join(names)}]"
+        self.entries[:split] = [FocusContextEntry([summary], related, watermarks=watermarks, inputs=inputs)]
+        self._service.planner_request_snapshot = None
 
     async def _cancel_worker(self) -> None:
         worker = self._worker

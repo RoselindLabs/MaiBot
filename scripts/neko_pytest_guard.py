@@ -25,6 +25,7 @@ REQUIRED = {
     "pytests/neko/test_hook_media_wire.py",
     "pytests/neko/test_gif_static_image.py",
     "pytests/neko/test_private_self_echo.py",
+    "pytests/neko/test_focus_recovery.py",
     "pytests/maisaka/test_context_compaction.py",
     "pytests/maisaka/test_focus_group_runtime.py",
     "pytests/maisaka/test_replyer_expression_selection.py",

@@ -41,7 +41,7 @@
 | N08 gemini-fallback | 首候选解析、结构化拦截、精确Grok备用：`src/llm_models/{exceptions,utils_model,model_client/gemini_client}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游同时满足候选解析、未输出/未锁模型、候选交集与有限重试 |
 | N09 rpc-media | 双端32MiB、协商媒体表/同图去重：`src/plugin_runtime/{transport/base,protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
 | N10 gif-frames | 浮点帧差与单帧边界：`src/common/utils/utils_image.py` | `pytests/neko/test_gif_static_image.py` | 上游覆盖uint8溢出、max_frames及阈值边界 |
-| N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离：`src/maisaka/focus/group_runtime.py` | `pytests/maisaka/test_focus_group_runtime.py` | 上游保新消息/主动任务唤醒、无自动重试循环、unknown不重放 |
+| N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离、无执行快照时有限只读摘要：`src/maisaka/focus/group_runtime.py`、`src/maisaka/chat_loop_service.py`、`src/maisaka/context/compaction.py` | `pytests/maisaka/test_focus_group_runtime.py`、`pytests/neko/test_focus_recovery.py` | 上游保新输入唤醒、有限摘要原子提交、失败保留输入、无自动重试循环及unknown不重放 |
 | N12 subagent-evidence | 子代理来源与核实层级交接：`src/maisaka/builtin_tool/subagent.py` | 子代理提示人工核对、宿主契约；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
 | N13 dashboard-echo | 群聊自身回传展示合并：`dashboard/src/routes/monitor/maisaka-monitor.tsx` | 对应监控合成样本、前端类型/构建、实际静态hash | 上游按正式消息身份合并，缺身份和无出站对应仍保留 |
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
@@ -69,6 +69,14 @@
 - 内存已无正式会话的成员不进入工具路由或参考构造，避免有效性检查抛异常拖停整组；不借旧成员身份授权。
 - 工具准备和聊天参考构造有独立准备阶段；不更改模型超时、Focus策略或压缩失败策略。
 - 来源清单当批增加`src/maisaka/focus/group_runtime.py`后为28源＋锁29项；当前总数见顶部来源登记，实际部署以实例发布记录为准。
+
+#### 有限只读恢复（2026-11-06，本地源码）
+
+- 首次请求、失败撤销执行快照及检查点恢复后，复用真实请求准备链取得只读压缩模板；模板不成为可执行快照、不落盘，失败后按当前成员与配置重建。
+- 参考准备后接入的就绪消息也检查压力。沿既有`max_context_size`规划完整条目，单次至多8批，顺序合并前序摘要；每批不超过既有消息条数，近期原文保留。没有新增Token计量、容量配置或模型预算；超长单条、不可拆批次或必要模板仍可能失败。
+- 以构造链记录的历史Item身份和内容证明归属，再移除全量旧历史；Hook新增参考保留，Hook删除/改写历史或未知工具协议则拒绝替换。摘要只携带当前批次、前序摘要与只读模板；外接Planner未提供此模板时保留输入并失败，不改走其它模型。
+- 全批成功且generation、成员有效性、配置、条目投影及输入水位仍一致，才一次替换；失败、取消、变更或批次耗尽保留原输入，不提前推进`_considered`，按原N11等待新输入。摘要中工具调用只作为资料，不执行或重放unknown。
+- 原有成功快照的常规压缩失败丢旧原文合同保持，新增恢复入口独立；不改共享范围、wait/主动任务、普通steering、模型人设或权限。合成容量拒绝器只证明机制，不代表生产Token上限或真实模型/QQ送达。
 
 ### 私聊自身回传与相邻归属修复（2026-11-04）
 

@@ -66,7 +66,9 @@ from src.maisaka.context.usage import (
     resolve_tool_definition_name,
 )
 from src.maisaka.display.prompt_cli_renderer import PromptCLIVisualizer
-from src.maisaka.context.compaction import ContextSummaryMessage, PlannerRequestSnapshot
+from src.maisaka.context.compaction import (
+    ContextSummaryMessage, FocusCompactionTemplate, FocusRecoveryError, PlannerRequestSnapshot,
+)
 from src.maisaka.context.post_processor import MIN_RETAINED_CHAT_MESSAGES
 from src.maisaka.focus import focus_mode_manager
 from src.maisaka.visual.message_limiter import limit_latest_images_in_messages
@@ -1184,7 +1186,8 @@ class MaisakaChatLoopService:
         system_prompt: Optional[str] = None,
         tail_user_messages: Sequence[str] | None = None,
         logical_turn_id: str | None = None,
-    ) -> ChatResponse:
+        prepare_focus_compaction: bool = False,
+    ) -> ChatResponse | FocusCompactionTemplate:
         """执行一轮 Maisaka 规划器请求。
 
         Args:
@@ -1225,6 +1228,10 @@ class MaisakaChatLoopService:
                 max_image_num=global_config.visual.max_image_num,
                 preserved_item_ids=preserved_image_item_ids,
             )
+
+        # NEKO: N11 — record exact ownership before Hooks; never remove Hook
+        # material by its position in a rewritten request.
+        owned_history = {item.meta.item_id: item for item in built_messages[1:history_item_count + 1]}
 
         def context_factory(_client: BaseClient) -> List[ContextItem]:
             """返回当前轮次已经构建好的请求 Context Items。
@@ -1309,6 +1316,22 @@ class MaisakaChatLoopService:
                 tool_provider_by_name.get(resolve_tool_definition_name(definition), "")
                 for definition in all_tools
             ]
+        if prepare_focus_compaction:
+            if request_kind != "planner":
+                raise FocusRecoveryError("Focus 压缩模板只能来自 Planner 准备链")
+            if global_config.agent.planner_enabled and self._session_id in global_config.agent.planner_sessions:
+                raise FocusRecoveryError("外接 Planner 无只读恢复模板，原输入保留")
+            if len(owned_history) != history_item_count:
+                raise FocusRecoveryError("历史条目身份不唯一，拒绝替换压缩材料")
+            for item_id, original in owned_history.items():
+                matches = [item for item in built_messages if item.meta.item_id == item_id]
+                if len(matches) != 1 or matches[0] != original:
+                    raise FocusRecoveryError("Hook 改写了历史归属，拒绝替换压缩材料")
+            template_items = [item for item in built_messages if item.meta.item_id not in owned_history]
+            if any(isinstance(item, (FunctionCallItem, FunctionCallOutputItem, ProviderActivityItem)) for item in template_items):
+                raise FocusRecoveryError("只读模板包含无法归属的工具协议")
+            return FocusCompactionTemplate(tuple(deepcopy(template_items)), tuple(deepcopy(serialize_tool_definitions(all_tools))))
+
         if request_kind == "planner":
             self._active_tool_names = tuple(
                 name for definition in all_tools if (name := resolve_tool_definition_name(definition))
