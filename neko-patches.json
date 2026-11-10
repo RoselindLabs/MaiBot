@@ -17,7 +17,7 @@
     "src/plugin_runtime/host/supervisor.py": "ced9745a63cca07c2afd99ed5de9dc82584bcf10175d8689b38bed29d9bb38aa",
     "src/plugin_runtime/integration.py": "38d9a691e9ec925282fb400e0e24b6a8d92ed527afc19f75ff3327a9e6cb9b93",
     "src/common/utils/utils_image.py": "a4cf649a0907560c5d823ed7fcb19f9d19198d32206482b3c14ac56c2003a738",
-    "src/maisaka/chat_loop_service.py": "b03180a4158d0cb80c81c55ab5843988058c9b8d1fd8ce6ab997b13dde9a2aa7",
+    "src/maisaka/chat_loop_service.py": "463badca7443a69e4ae5728c8bd8f397ec67ef86a1bbcd4d411efe3ff1c33933",
     "src/maisaka/builtin_tool/reply.py": "90702baaeb76fd62d2d9eec2f17796f479fb36d4739901eab2334ab55f8e3133",
     "src/chat/replyer/maisaka_generator_base.py": "8e2f350a96ce13c5eddcd4e43164ebfa96bf48351e3872bba7a3761e8168a7f2",
     "src/maisaka/context/compaction.py": "6a31ebd1dfd79de6a9a72718e85a8c6660102ff9ace947df87d82eed9c36349b",

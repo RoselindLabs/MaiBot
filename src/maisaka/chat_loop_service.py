@@ -71,6 +71,7 @@ from src.maisaka.context.usage import (
 from src.maisaka.display.prompt_cli_renderer import PromptCLIVisualizer
 from src.maisaka.context.compaction import (
     ContextSummaryMessage, FocusCompactionTemplate, FocusRecoveryError, PlannerRequestSnapshot,
+    _neko_internal_control,
 )
 from src.maisaka.context.post_processor import MIN_RETAINED_CHAT_MESSAGES
 from src.maisaka.focus import focus_mode_manager
@@ -1217,6 +1218,14 @@ class MaisakaChatLoopService:
             max_context_size=max_context_size,
             is_group_chat=self._is_group_chat,
         )
+        # NEKO: N11 focus-recovery — use the existing N04 summary-material boundary
+        # before Hooks. Host-owned proactive controls are not summary facts; their
+        # request-only deduplication must not look like lost conversation ownership.
+        # The ledger and normal Planner input stay intact. All retained history
+        # still passes the exact identity/content check below, including real IM
+        # quoting control text, tools and cross-session source envelopes.
+        if prepare_focus_compaction:
+            selected_history = [message for message in selected_history if not _neko_internal_control(message)]
         # 上下文可能触发表情包解码、缩放和缓存等待，在线程池执行，避免阻塞事件循环。
         built_messages, history_item_count = await asyncio.to_thread(
             self._build_request_messages,
