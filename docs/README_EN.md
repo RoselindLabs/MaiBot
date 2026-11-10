@@ -1,3 +1,6 @@
+> **Neko maintenance fork**: MaiBot **1.4.3**, SDK **2.22.1**, Dashboard **1.10.3**; not an official release.
+> Validated code is deployed; documentation HEAD does not imply a new deployment. See [NEKO_FORK.md](../NEKO_FORK.md) for current status, N01–N16 implementation/test entry points and upgrade boundaries. Instance configuration and acceptance details remain in private operations records.
+
 <div align="center">
 
   <!-- Language Switcher -->
@@ -69,7 +72,7 @@ MaiSaka is more than just a bot, and more than a "helpful assistant" that comple
 
 ## Installation
 
-**Latest Version: v1.2.3**
+**Current fork maintenance baseline: v1.4.3**
 
 - **Download**: Visit the [Release](https://github.com/Mai-with-u/MaiBot/releases/) page to get the latest version.
 
@@ -79,8 +82,9 @@ MaiSaka is more than just a bot, and more than a "helpful assistant" that comple
 
 | Branch | Description |
 | :--- | :--- |
-| `main` | **Stable** |
-| `dev` | Development branch with features currently in development |
+| `neko/main` | **Maintained fork default** |
+| `main` | Upstream mirror |
+| Upstream `dev` | Development branch with features currently in development |
 
 ---
 

@@ -1,4 +1,4 @@
-> **Neko maintenance fork** — based on upstream **1.3.19** (SDK **2.20.0**, Dashboard **1.9.13**), not an official MaiBot release.
+> **Neko maintenance fork** — based on upstream **1.4.3** (SDK **2.22.1**, Dashboard **1.10.3**), not an official MaiBot release.
 > See [NEKO_FORK.md](NEKO_FORK.md) for the small patch set, validation and upstream sync policy.
 > Maintained by [RoselindLabs](https://github.com/RoselindLabs). Private self-echo fixes require the matching [maintained QQ adapter](https://github.com/RoselindLabs/maibot-snowluma-adapter) and a Dashboard built from the deployed commit. Source HEAD is not a production deployment record.
 > No production configuration, chat data or credentials are included.
@@ -25,7 +25,7 @@
     <a href="https://status.maibot.top"><picture><source media="(prefers-color-scheme: dark)" srcset="https://status.maibot.top/card/stat-plugins.svg?theme=night"><img src="https://status.maibot.top/card/stat-plugins.svg" alt="上架插件" width="24%"></picture></a>
   </p>
 
-  <p><strong>MaiBot 1.3.19</strong> &middot; WebUI 1.9.13</p>
+  <p><strong>MaiBot 1.4.3</strong> &middot; WebUI 1.10.3</p>
 
   <!-- Badges Row -->
   <p>
@@ -78,9 +78,12 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**当前 fork 候选基线: v1.4.3（尚未部署）**
+**当前 fork 维护基线: v1.4.3（已验业务版本已上线）**
 
-<sub><sup><strong>Candidate fork baseline: v1.4.3 (not deployed)</strong></sup></sub>
+<sub><sup><strong>Current fork baseline: v1.4.3 (validated code deployed)</strong></sup></sub>
+
+维护修订、源码验证和N01–N16实现/测试入口见[补丁台账](NEKO_FORK.md#升级补丁台账稳定id)；实例记录独立管理。
+<sub><sup>See the patch ledger for fork revisions, validation and N01–N16 implementation/test entry points; instance records are managed separately.</sup></sub>
 
 - **发布**：[Release](https://github.com/Mai-with-u/MaiBot/releases/) 页面展示了最新发布的正式版。
   <sub><sup><strong>Download</strong>: Visit the <a href="https://github.com/Mai-with-u/MaiBot/releases/">Release</a> page to get the latest version.</sup></sub>
@@ -94,8 +97,9 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 | 分支 / Branch ||
 | :--- | :--- |
-| `main` | **稳定版 · STABLE** |
-| `dev` | 开发版，包含开发中的新功能 · DEV|
+| `neko/main` | **维护默认分支 · Maintained fork default** |
+| `main` | 上游镜像 · Upstream mirror |
+| 上游 `dev` / upstream `dev` | 开发版 · Development |
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-doc-night.svg"><img src="depends-data/readme/sec-doc-day.svg" alt="文档 · DOC" width="100%"></picture>
 
