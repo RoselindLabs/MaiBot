@@ -87,7 +87,6 @@ def test_real_builder_filters_only_controls_and_preserves_quotes_pairs_summary(m
         planner_snapshot=snapshot,
         previous_summary=summary,
         recent_messages=[],
-        max_summary_chars=600,
         source_context="synthetic group",
     )
     ids = {item.meta.item_id for item in request.context_items}

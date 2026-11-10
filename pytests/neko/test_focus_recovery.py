@@ -92,7 +92,6 @@ def enqueue(group, count=8, start=0):
     for i in range(start, start + count):
         sid = "A" if i % 2 == 0 else "B"
         group._queue_entry(sid, _chat_history(f"recovery-msg-{i}", sid))
-        group._ready.add(sid)
 
 
 @pytest.mark.asyncio
@@ -120,7 +119,7 @@ async def test_worker_recovers_without_successful_snapshot(recovery, monkeypatch
     else:
         enqueue(group)
     if mode == "checkpoint":
-        group._take_ready_inputs()
+        group._take_pending_inputs()
         store = FocusCheckpointStore("recovery-test", tmp_path)
         store.save(group.entries, {"sequence": group._sequence})
         group.entries = store.load()["entries"]
@@ -147,7 +146,7 @@ async def test_worker_recovers_without_successful_snapshot(recovery, monkeypatch
 async def test_failed_recovery_keeps_inputs_and_watermarks(recovery, monkeypatch, failure):
     group, _, trace, state = recovery
     enqueue(group, 60 if failure == "attempts" else 8)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     if failure == "entry":
         group.entries[0].messages.extend(_chat_history(f"huge-{i}") for i in range(8))
     before = list(group.entries)
@@ -171,7 +170,7 @@ async def test_failed_recovery_keeps_inputs_and_watermarks(recovery, monkeypatch
 async def test_late_summary_cannot_commit(recovery, monkeypatch, change):
     group, _, _, state = recovery
     enqueue(group)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     before = list(group.entries)
 
     async def change_state():
@@ -200,7 +199,7 @@ async def test_late_summary_cannot_commit(recovery, monkeypatch, change):
 async def test_multibatch_recovery_merges_summary_preserves_progress(recovery):
     group, _, trace, state = recovery
     enqueue(group, 20)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     inputs = sum(len(records) for entry in group.entries for records in entry.inputs.values())
     await group._recover_context([])
     assert len(state.summaries) == 3
@@ -214,7 +213,7 @@ async def test_multibatch_recovery_merges_summary_preserves_progress(recovery):
 async def test_later_batch_failure_does_not_commit_partial_summary(recovery):
     group, _, _, state = recovery
     enqueue(group, 20)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     before = list(group.entries)
 
     async def fail_second_batch():
@@ -234,7 +233,7 @@ async def test_later_batch_failure_does_not_commit_partial_summary(recovery):
 async def test_arrival_during_summary_stays_unconsumed(recovery):
     group, _, _, state = recovery
     enqueue(group)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
 
     async def arrival():
         enqueue(group, 1, 8)
@@ -242,7 +241,7 @@ async def test_arrival_during_summary_stays_unconsumed(recovery):
     state.during_summary = arrival
     await group._run_turn()
     assert group._considered == {"A": 7, "B": 8}
-    assert group._pending["A"][0].inputs == {"A": [(9, "recovery-msg-8")]}
+    assert group._pending[0].inputs == {"A": [(9, "recovery-msg-8")]}
 
 
 @pytest.mark.asyncio
@@ -253,7 +252,7 @@ async def test_hook_material_is_retained_or_ownership_rejected(recovery, monkeyp
 
     group, _, _, state = recovery
     enqueue(group)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     before = list(group.entries)
 
     class Hooks:
@@ -298,7 +297,7 @@ async def test_restored_unknown_batch_is_data_never_replayed(recovery):
     unknown = next(m for m in group.history if isinstance(m, ToolResultMessage))
     assert unknown.metadata["execution_state"] == "unknown"
     enqueue(group, 12)
-    group._take_ready_inputs()
+    group._take_pending_inputs()
     await group._recover_context([])
     assert unknown.content in state.summaries[0][-1]
     assert '"call_id": "pending"' in state.summaries[0][-1]

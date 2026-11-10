@@ -28,9 +28,9 @@ def context(session="a", group="123", anchor=None):
 
 def payload(arguments, ctx, *, contract=CONTRACT, method="plugin.invoke_tool"):
     return ComponentQueryService._build_tool_invocation_payload(
-        SimpleNamespace(invoke_method=method, metadata={"trusted_context": contract}),
         SimpleNamespace(arguments=arguments, stream_id="a", reasoning=""),
         ctx,
+        entry=SimpleNamespace(invoke_method=method, metadata={"trusted_context": contract}),
     )
 
 
@@ -106,6 +106,7 @@ async def test_native_file_grant_and_neko_identity_coexist_and_revoke(monkeypatc
         )
     )
     entry = SimpleNamespace(
+        is_legacy_action=False,
         platforms=[],
         invoke_method="plugin.invoke_tool",
         plugin_id="synthetic.files",

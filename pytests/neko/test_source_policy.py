@@ -121,11 +121,12 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
     current = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     before = {package["name"]: package["version"] for package in official["package"]}
     after = {package["name"]: package["version"] for package in current["package"]}
-    reviewed = {"maibot": "1.3.19", "maibot-dashboard": "1.9.13", "maibot-plugin-sdk": "2.20.0"}
-    assert after == {**before, **reviewed}
+    reviewed = {"maibot": "1.4.3", "maibot-dashboard": "1.10.3", "maibot-plugin-sdk": "2.22.1"}
+    added = {"imageio-ffmpeg": "0.8.1", "pycryptodome": "3.24.1", "qrcode": "8.2", "rlottie-python": "1.3.8"}
+    assert after == {**before, **reviewed, **added}
     official_packages = {package["name"]: package for package in official["package"]}
     for package in current["package"]:
-        if package["name"] not in reviewed:
+        if package["name"] not in reviewed and package["name"] not in added:
             assert package == official_packages[package["name"]]
     assert manifest["runtime_packages"] == reviewed
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -135,8 +136,8 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
         )
     )
     assert project["project"]["dependencies"] == upstream_project["project"]["dependencies"]
-    assert "maibot-plugin-sdk>=2.20.0" in project["project"]["dependencies"]
-    assert "maibot-plugin-sdk>=2.20.0" in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    assert "maibot-plugin-sdk>=2.22.1" in project["project"]["dependencies"]
+    assert "maibot-plugin-sdk>=2.22.1" in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
 
 
 def test_only_the_readonly_fork_workflow_is_active():

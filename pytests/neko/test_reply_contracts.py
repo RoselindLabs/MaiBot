@@ -79,10 +79,11 @@ def test_actual_hook_registration_is_readonly_and_bounded():
 @pytest.mark.parametrize("outcome", ["success", "timeout", "cancelled"])
 async def test_actual_expression_budget_preserves_success_and_external_cancellation(monkeypatch, outcome):
     generator = object.__new__(generator_module.BaseMaisakaReplyGenerator)
-    monkeypatch.setattr(generator, "_uses_retro_prompt", lambda: False)
     monkeypatch.setattr(generator, "_resolve_session_id", lambda value: value)
     monkeypatch.setattr(global_config.expression, "use_vector_expression", True)
-    expected = SimpleNamespace(expression_habits="synthetic", selected_expression_ids=[1], selected_expressions=[{}])
+    expected = SimpleNamespace(
+        expression_habits="synthetic", selected_expression_ids=[1], selected_expressions=[{}], hook_abort=None
+    )
     cancelled = asyncio.Event()
 
     async def selection(**kwargs):

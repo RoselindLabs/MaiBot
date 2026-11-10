@@ -78,7 +78,7 @@ def main():
             "from src.plugin_runtime.protocol.hook_media import encode_frame, decode_frame;"
             "assert callable(plan_internal_history_pressure) and callable(encode_frame) and callable(decode_frame);"
             "from src.common.prompt_i18n import load_prompt_template;"
-            "templates=('agent_acp','agent_acp_computer','agent_acp_environment','agent_acp_failure',"
+            "templates=('agent_acp','agent_acp_environment','agent_acp_failure',"
             "'agent_planner','agent_planner_continue','agent_planner_resume','a_memorix_fact_deduplication');"
             "assert all(load_prompt_template(name,locale=locale).template "
             "for name in templates for locale in ('zh-CN','en-US','ja-JP'));"

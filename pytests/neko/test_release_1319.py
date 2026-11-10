@@ -31,7 +31,7 @@ def test_1319_config_copy_keeps_existing_values_and_only_adds_empty_profiles(tmp
     path.write_text(tomlkit.dumps(old), encoding="utf-8")
     original = deepcopy(old)
     migrated, updated = load_config_from_file(Config, path, CONFIG_VERSION)
-    assert updated and CONFIG_VERSION == "8.15.68"
+    assert updated and CONFIG_VERSION == "8.16.18"
     expected = deepcopy(original)
     expected["inner"]["version"] = CONFIG_VERSION
     expected["personality"].update(profiles=[], selected_profile="")

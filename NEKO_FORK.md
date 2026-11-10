@@ -2,11 +2,78 @@
 
 这是 [Mai-with-u/MaiBot](https://github.com/Mai-with-u/MaiBot) 的薄维护 fork，
 保留完整上游历史、作者归属和原 GPL-3.0/第三方许可，不是独立原创或官方发行。
-当前源码基线为 **1.3.19 / c6429547af711555e3d4d1b8d04b413572cb616c**；
+当前候选源码基线为 **1.4.3 / e5391507531706a8bfce011d55ed94628039f2de**；
 首个维护基线 1.3.15/062d45cf 的历史与初始补丁提交保留。
 软件包仍使用上游版本号，具体修订以 **upstream SHA + fork SHA** 识别；未向官方 PyPI 包名发布。
 
-## 当前源码与阅读入口（2026-11-06）
+## 1.4.3 隔离候选（2026-11-10，未部署）
+
+本节优先于下方历史1.3.19准备与发布记录。SDK固定2.22.1，Dashboard固定1.10.3，
+主库目标48、主配置8.16.18、模型任务配置仍1.17.25；公共模型目录版本3.0.0。
+只在独立候选树集成和禁网络测试，不读取生产配置、不连接模型/QQ，不表示已通过Linux CI或生产验收。
+来源仍31个Python源加锁共32项。`focus/manager.py`保持官方字节，不加新实例空组全局兜底。
+
+### 本次逐项集成决定
+
+- N01 **port**：真实对端/完整身份/发送先后/恢复去重，合入上游场景及Host架构。
+- N02 **port**：发送回执保留；新增发送Hook中止时也报告此前明确成功分段，纯语音不引用。
+- N03 **keep**：完整表达链20秒及外部取消不变，适配新回复准备返回值。
+- N04 **port**：临时素材隔离、私聊192/96及原子单份摘要保留，采用上游摘要结构校验。
+- N05 **port**：上游payload签名改变，显式传ToolEntry，opt-in身份与文件票据独立。
+- N06 **keep**：uv新旧错误URL格式兼容，仍不用原生更新替代固定fork发布。
+- N07 **keep**：有界脱敏Gemini诊断及失败快照。
+- N08 **keep**：首候选、结构化拦截及已配置精确Grok交集备用；不改模型参数。
+- N09 **port**：32MiB及协商媒体表沿新RPC封套移植，还原大小限制和legacy保持。
+- N10 **partial/keep**：上游吸收浮点MSE，仍保单帧/非正上限验证。
+- N11 **port**：统一入站队列后保失败时水位、8批只读原子恢复及失效成员隔离。
+- N12 **port**：子代理证据交接提示沿新入口保留，不扩大工具权限。
+- N13 **port**：新观察页保正式消息身份配对显示，不修改账本。
+- N14 **port**：保持旧锁的98个其它包，新增上游必需imageio-ffmpeg0.8.1、pycryptodome3.24.1、qrcode8.2、rlottie-python1.3.8；双平台/源包门禁保留。
+- N15 **port**：普通群/私两次消息打断保护不变；撤掉上游新增的仅群限制，不代开开关。
+- N16 **port**：请求局部观察接组级监控，实时耗时及退出清理，不增加总期限。
+
+### 已确认行为选择及迁移边界
+
+用户明确选择采用1.4官方统一Focus入站：不再等待各成员独立防抖，可能更早启动请求，
+不保留旧ready调度桥。新消息仍不取消在途Focus请求；失败必须等失败后的新消息/主动任务，
+不因请求期间旧积压立即重试。最多8批按原消息条数恢复，全批成功且读集有效才提交；失败保输入和水位，
+工具unknown不重放，无Token预算，不调整中转站、模型、人设、权限或用户自行设置的等待时间。
+
+官方1.4空`focus_groups`意味着无显式共享组，旧版却表示global。
+`scripts/neko_prepare_143.py --input <private-copy> --output <new-copy>`只处理有明确版本的旧副本：
+版本<=8.15.68、focus_mode=true、focus_groups显式[]且私聊参与选择明确，才生成单一显式通配组；
+原focus_on_private、whitelist、权限及其它字段不动。关闭、已有显式组、新实例配置不变；模糊旧条件拒绝。
+输出必须新文件，输入不写，重复执行幂等。Host默认配置及运行时不加兼容标记/兜底。
+
+**上游摘要输出策略变化需单独比对配置副本**：原官方`chat.context_compaction_summary_max_chars`
+默认6000（1000–8000），同时约束提示和渲染后长度；1.4删除该字段/提示参数/长度拒绝，
+保留严格状态结构、非空与禁工具响应。可能接纳更长摘要并增大后续输入，不承诺成本不变。
+这不是N新增Token机制，8批/原消息条数/原子性仍保留；若实例显式依赖自定义字符限制，
+不得默默丢弃，应在切换前报告并取得选择。本候选未读取线上值。
+
+旧`agent_acp_computer`及EmojiCandidateMessage已随官方移除，回归不复活废弃API；
+保摘要工具配对/失败不提交、真实TTS消费、引用/附件/投递次数等行为断言。
+新Host/Worker运行契约由测试提供synthetic endpoint，网络审计继续禁止模型/QQ连接。
+
+### Host 认证与运维接口合同
+
+- 旧实例原地登记，config/data/plugins无需强制搬入bots目录；新增host/注册表、公共模型和认证状态必须进备份。
+- 凭据从旧data/webui.json迁到host/webui.json，旧文件可能删除。只读access_token用于POST
+  `/api/webui/auth/verify`的JSON `{token: ...}`，HTTP200仍需检查`valid===true`。
+- 持有响应CookieJar，不能硬编码cookie名称。名称为`maibot_host_session_<workspace字符串sha256前12>`，
+  HttpOnly、SameSite=Lax、path=/、8小时绝对期限，Secure沿配置；凭据和cookie不输出日志。
+- GET `/api/webui/auth/check`或`/api/host/session`核会话；GET `/api/host/bots`返回bots及workspace。
+  必须按登记directory精确识别实例并校验32位hex bot_id，不按昵称或默认第一条推断。
+- 业务接口为`/api/host/bots/{bot_id}/proxy/api/webui/...`，插件加载状态用末尾`plugins/installed`。
+  使用Host cookie，不拿旧Bearer访问Worker。proxy剥离cookie/authorization后走实例IPC。
+- 非GET/HEAD/OPTIONS请求检查Origin/Fetch元数据；无Origin允许，存在时须满足同源规则。
+  Host写接口（`/api/host/*`且非`/proxy/`）还要求`X-MaiBot-Host: 1`；没有独立CSRF token。
+  禁止靠放宽认证/端口解决客户端不兼容。认证更新/重置/创建Bot不是就绪探针。
+- 模型定义迁到host/model_catalog.toml，任务仍在实例config/model_config.toml；旧完整配置快照
+  不能直接当新结构写回。主库46→48另有统计后台回填；回退须连同Host状态、旧环境/锁/dist恢复，
+  新unknown和外部动作现场不得被旧快照抹掉。
+
+## 历史源码与阅读入口（2026-11-06）
 
 | 边界 | 当前依据 |
 | --- | --- |

@@ -39,8 +39,8 @@
   <!-- Quick links -->
   <p>
     <a href="https://github.com/Mai-with-u/MaiBotOneKey/releases/"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-get-night.svg"><img src="depends-data/readme/key-get-day.svg" alt="下载启动器"></picture></a>
-    <a href="https://docs.mai-mai.org/manual/"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-setup-night.svg"><img src="depends-data/readme/key-setup-day.svg" alt="部署教程"></picture></a>
-    <a href="https://docs.mai-mai.org"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-docs-night.svg"><img src="depends-data/readme/key-docs-day.svg" alt="文档"></picture></a>
+    <a href="https://docs.maibot.chat/manual/"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-setup-night.svg"><img src="depends-data/readme/key-setup-day.svg" alt="部署教程"></picture></a>
+    <a href="https://docs.maibot.chat"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-docs-night.svg"><img src="depends-data/readme/key-docs-day.svg" alt="文档"></picture></a>
     <a href="https://maibot.chat/"><picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/key-website-night.svg"><img src="depends-data/readme/key-website-day.svg" alt="官方网站"></picture></a>
   </p>
 
@@ -78,14 +78,14 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**当前 fork 基线: v1.3.19**
+**当前 fork 候选基线: v1.4.3（尚未部署）**
 
-<sub><sup><strong>Current fork baseline: v1.3.19</strong></sup></sub>
+<sub><sup><strong>Candidate fork baseline: v1.4.3 (not deployed)</strong></sup></sub>
 
 - **发布**：[Release](https://github.com/Mai-with-u/MaiBot/releases/) 页面展示了最新发布的正式版。
   <sub><sup><strong>Download</strong>: Visit the <a href="https://github.com/Mai-with-u/MaiBot/releases/">Release</a> page to get the latest version.</sup></sub>
 
-- **[部署教程](https://docs.mai-mai.org/manual/)**  
+- **[部署教程](https://docs.maibot.chat/manual/)**
 <sub><sup>Deployment Guide</sup></sub>
 
 - **方便使用的麦麦启动器下载 (Windows/MAC)**：[Maibot-OK](https://github.com/Mai-with-u/MaiBotOneKey/releases/)  
@@ -99,8 +99,8 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-doc-night.svg"><img src="depends-data/readme/sec-doc-day.svg" alt="文档 · DOC" width="100%"></picture>
 
-- **[麦麦文档](https://docs.mai-mai.org)**：最全面的文档中心，了解麦麦的一切。  
-  <sub><sup><strong><a href="https://docs.mai-mai.org">Documentation</a></strong>: The most comprehensive documentation hub for everything about MaiSaka.</sup></sub>
+- **[麦麦文档](https://docs.maibot.chat)**：最全面的文档中心，了解麦麦的一切。
+  <sub><sup><strong><a href="https://docs.maibot.chat">Documentation</a></strong>: The most comprehensive documentation hub for everything about MaiSaka.</sup></sub>
 
 
 - **[演示视频]**

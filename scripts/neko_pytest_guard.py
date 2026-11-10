@@ -20,6 +20,7 @@ REQUIRED = {
     "pytests/neko/test_runtime_preparation.py",
     "pytests/neko/test_release_1318.py",
     "pytests/neko/test_release_1319.py",
+    "pytests/neko/test_release_143.py",
     "pytests/neko/test_gemini_failure_diagnostics.py",
     "pytests/neko/test_rpc_frame_limit.py",
     "pytests/neko/test_internal_history_pressure.py",

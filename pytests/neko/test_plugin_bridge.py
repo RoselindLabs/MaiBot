@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import importlib.util
+import asyncio
 import os
 import subprocess
 import sys
@@ -127,7 +128,6 @@ async def test_tts_segments_survive_host_quote_and_visibility_chain(engine, monk
     clips = [b"synthetic-voice-a", b"synthetic-voice-b"]
     target = engine._runtime._chat_history[0].original_message
     monkeypatch.setattr(global_config.chat.reply_style, "group_quote_frequency", "occasionally")
-    monkeypatch.setattr(global_config.debug, "replyer_retro_prompt", False)
     generation = ReplyGenerationResult(success=True, completion=LLMCompletionResult(response_text="synthetic reply"))
     generator = SimpleNamespace(generate_reply_with_context=AsyncMock(return_value=(True, generation)))
     monkeypatch.setattr(reply.replyer_manager, "get_replyer", lambda **kwargs: generator)
@@ -196,8 +196,8 @@ async def test_tts_segments_survive_host_quote_and_visibility_chain(engine, monk
         supplement_runner = AsyncMock(
             return_value=ReplySupplement(
                 plan=ReplySupplementPlan.model_validate({"msg_id": "original", "parts": [{"type": "reply"}]}),
-                quote_message=target,
-                components=[None],
+                target_message=target,
+                attachments=asyncio.create_task(asyncio.sleep(0, result=[None])),
                 metadata={"synthetic": True},
             )
         )

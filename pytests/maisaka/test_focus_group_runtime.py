@@ -34,7 +34,6 @@ from src.maisaka.context.messages import (
     SessionBackedMessage,
     ToolResultMessage,
 )
-from src.maisaka.context.emoji_candidates import EmojiCandidateMessage
 from src.maisaka.context import compaction as compaction_module
 from src.maisaka.context.compaction import ContextSummaryMessage, PlannerRequestSnapshot
 from src.maisaka.focus import group_runtime as group_module
@@ -153,7 +152,7 @@ class RecordingProvider:
                 metadata={"visibility": "visible"},
             ),
             ToolSpec(
-                name="wait",
+                name="reply",
                 provider_name="maisaka_builtin",
                 provider_type="builtin",
                 parameters_schema={
@@ -179,7 +178,11 @@ class RecordingProvider:
         self.trace.append(
             (context.session_id, invocation.tool_name, dict(invocation.arguments), list(self.runtime._chat_history))
         )
-        return ToolExecutionResult(tool_name=invocation.tool_name, success=True, content=context.session_id)
+        return ToolExecutionResult(
+            tool_name=invocation.tool_name, success=True, content=context.session_id,
+            metadata={"after_reply": "wait", "wait_seconds": invocation.arguments["seconds"]}
+            if invocation.tool_name == "reply" else {},
+        )
 
     async def close(self):
         pass
@@ -292,7 +295,6 @@ async def test_request_failure_waits_for_fresh_input_and_recovers(setup_group, t
     group.checkpoint = AsyncMock(side_effect=checkpoint)
     group._service.chat_loop_step = AsyncMock(side_effect=request)
     group._queue_entry("A", _chat_history("original"))
-    group._ready.add("A")
     group._ensure_worker()
     try:
         await asyncio.wait_for(failed.wait(), 2)
@@ -341,7 +343,6 @@ async def test_checkpoint_failure_remains_terminal_after_request_failure(setup_g
     group._service.chat_loop_step = AsyncMock(side_effect=RespNotOkException(503))
     group.checkpoint = AsyncMock(side_effect=OSError("synthetic disk failure"))
     group._queue_entry("A", _chat_history("original"))
-    group._ready.add("A")
     group._ensure_worker()
     with pytest.raises(OSError):
         await asyncio.wait_for(group._worker, 2)
@@ -417,14 +418,14 @@ async def test_wait_closes_tool_batch_and_cancels_later_calls(setup_group):
     response = _response(
         calls=[
             ToolCall("first", "echo", {"session_id": "A", "text": "first"}),
-            ToolCall("waiting", "wait", {"session_id": "B", "seconds": 30}),
+            ToolCall("waiting", "reply", {"session_id": "B", "seconds": 30}),
             ToolCall("last", "echo", {"session_id": "B", "text": "last"}),
         ]
     )
     batch = FocusContextEntry(list(response.raw_messages), {"A", "B"})
-    _, paused = await group._execute_tools(response, batch, "turn", group._generation)
+    _, paused = await group._execute_tools(response, batch, group._generation)
     assert paused
-    assert [row[2] for row in trace] == [{"text": "first"}]
+    assert [row[2] for row in trace] == [{"text": "first"}, {"seconds": 30}]
     results = [message for message in batch.messages if isinstance(message, ToolResultMessage)]
     assert len(results) == 3
     assert results[1].success
@@ -443,7 +444,8 @@ async def test_wait_queues_normal_messages_and_background_results_until_at(setup
         return _response()
 
     group._service.chat_loop_step = planner
-    group.execute_control("wait", {"seconds": 60}, "A")
+    group._apply_reply_control(ToolExecutionResult(tool_name="reply", success=True,
+        metadata={"after_reply": "wait", "wait_seconds": 60}), "A")
     await group.register_message(members["B"], _incoming("B", "normal"), _history("普通消息"))
     group.register_proactive(members["B"], _incoming("B", "background"))
     await asyncio.sleep(0)
@@ -490,7 +492,7 @@ async def test_new_chat_message_does_not_cancel_inflight_planner(setup_group):
 
 
 @pytest.mark.asyncio
-async def test_each_chat_debounces_independently(setup_group):
+async def test_unified_input_does_not_wait_for_member_debounce(setup_group):
     group, members, _ = setup_group
     slow_ready = asyncio.Event()
     members["A"]._wait_for_message_quiet_period = slow_ready.wait
@@ -507,7 +509,8 @@ async def test_each_chat_debounces_independently(setup_group):
     await group.register_message(members["B"], _incoming("B", "ready"), _history("B 已就绪"))
     await asyncio.wait_for(called.wait(), 1)
     assert any("B 已就绪" in message.processed_plain_text for message in requests[0])
-    assert all("A 未结束防抖" not in message.processed_plain_text for message in requests[0])
+    assert any("A 未结束防抖" in message.processed_plain_text for message in requests[0])
+    assert not slow_ready.is_set()
     await group.stop()
 
 
@@ -782,7 +785,7 @@ async def test_media_and_post_messages_do_not_split_tool_results(setup_group):
         ]
     )
     batch = FocusContextEntry(list(response.raw_messages), {"A", "B"})
-    await group._execute_tools(response, batch, "turn", group._generation)
+    await group._execute_tools(response, batch, group._generation)
     after_model = batch.messages[len(response.raw_messages) :]
     assert [message.role for message in after_model] == ["tool", "tool", "user", "user"]
     assert after_model[2].processed_plain_text == "素材 A"
@@ -798,7 +801,7 @@ async def test_detach_without_clear_keeps_unprocessed_inputs_and_sent_messages(s
     await group.remove_member("A", clear_context=False)
     assert [message.processed_plain_text for message in group.history] == ["尚未判断的 A 输入", "A 已经发送的回复"]
     group.add_member(members["A"])
-    assert "A" in group._ready
+    assert group._event.is_set()
     await group.stop()
 
 
@@ -810,42 +813,14 @@ async def test_purge_removes_cleared_session_from_unloaded_checkpoints(setup_gro
         FocusContextEntry([_history("B 内容")], {"B"}),
     ]
     group._seen.update({"A\0one": None, "B\0two": None})
-    group.execute_control("wait", {"seconds": 30}, "A")
+    group._apply_reply_control(ToolExecutionResult(tool_name="reply", success=True,
+        metadata={"after_reply": "wait", "wait_seconds": 30}), "A")
     await FocusGroupRuntime.checkpoint(group)
     FocusCheckpointStore.purge_session("A", set(), tmp_path)
     payload = group._store.load()
     assert [message.processed_plain_text for entry in payload["entries"] for message in entry.messages] == ["B 内容"]
     assert payload["seen"] == ["B\0two"]
     assert payload["wait_until"] is None
-
-
-@pytest.mark.asyncio
-async def test_emoji_mapping_survives_checkpoint_and_only_restores_to_target(setup_group):
-    from src.llm_models.payload_content.context_item import ContextItemBuilder, RoleType
-
-    group, members, _ = setup_group
-    item = ContextItemBuilder().set_role(RoleType.User).add_text_content("表情候选").build()
-    group.entries = [
-        FocusContextEntry(
-            [
-                EmojiCandidateMessage(
-                    item=item,
-                    emoji_hashes={1: "hash-A"},
-                    visible_text="表情候选",
-                    timestamp=datetime.now(),
-                    session_id="A",
-                )
-            ],
-            {"A"},
-        )
-    ]
-    await FocusGroupRuntime.checkpoint(group)
-    group.entries = group._store.load()["entries"]
-    group.add_member(members["A"])
-    group.add_member(members["B"])
-    assets = [message for message in members["A"]._chat_history if isinstance(message, EmojiCandidateMessage)]
-    assert assets[0].emoji_hashes == {1: "hash-A"}
-    assert not any(isinstance(message, EmojiCandidateMessage) for message in members["B"]._chat_history)
 
 
 @pytest.mark.asyncio
@@ -881,7 +856,7 @@ async def test_regroup_transfers_unprocessed_real_messages_only(setup_group, mon
     member._reasoning_engine._build_history_message = AsyncMock(return_value=history)
     await manager.reconcile(member)
     if enabled:
-        assert new_group._pending["A"][0].messages[0].original_message is incoming
+        assert new_group._pending[0].messages[0].original_message is incoming
         assert member._focus_group is new_group
     else:
         assert member.message_cache[member._last_processed_index :] == [incoming]
@@ -901,7 +876,10 @@ async def test_real_chat_services_share_one_planner_without_starting_individual_
     monkeypatch.setattr(manager_module, "focus_mode_manager", manager)
     monkeypatch.setattr(runtime_module, "focus_mode_manager", manager)
     monkeypatch.setattr(global_config.experimental, "focus_mode", True)
-    monkeypatch.setattr(global_config.experimental, "focus_groups", [])
+    from src.config.official_configs import ChatStreamGroup, TargetItem
+    monkeypatch.setattr(global_config.experimental, "focus_groups", [
+        ChatStreamGroup(targets=[TargetItem(platform="*", item_id="*", rule_type="group")]),
+    ])
     monkeypatch.setattr(global_config.experimental, "focus_chat_whitelist", [])
     monkeypatch.setattr(global_config.chat.reply_timing, "message_debounce_mode", "off")
     sessions = {
@@ -1030,7 +1008,8 @@ async def test_background_result_is_saved_while_entire_group_is_waiting(setup_gr
     group, members, _ = setup_group
     group._hydrating = True
     group.checkpoint = lambda: FocusGroupRuntime.checkpoint(group)
-    group.execute_control("wait", {"seconds": 60}, "A")
+    group._apply_reply_control(ToolExecutionResult(tool_name="reply", success=True,
+        metadata={"after_reply": "wait", "wait_seconds": 60}), "A")
     group.register_proactive(members["B"], _incoming("B", "background-finished"))
     await group._checkpoint_task
     payload = group._store.load()

@@ -269,7 +269,7 @@ async def test_snapshot_prefix_tools_and_model_preserved_and_only_delta_appended
     previous = ContextSummaryMessage(content="旧摘要", timestamp=NOW)
     result = await build_context_summary(
         [old_omitted, covered], planner_snapshot=original, previous_summary=previous,
-        recent_messages=[recent, call, output], session_id="test", max_summary_chars=6000,
+        recent_messages=[recent, call, output], session_id="test",
         source_context=source_context,
     )
     assert len(captured) == 1
@@ -284,7 +284,7 @@ async def test_snapshot_prefix_tools_and_model_preserved_and_only_delta_appended
     assert request.max_tokens == 8192
     tail = get_item_text(request.context_items[-1])
     prompt_loader.assert_called_once_with(
-        "context_compaction_focus" if source_context else "context_compaction", max_summary_chars=6000,
+        "context_compaction_focus" if source_context else "context_compaction",
     )
     assert ("<conversation_sources>" in tail) == bool(source_context)
     assert ("Focus" in tail) == bool(source_context)
@@ -302,7 +302,7 @@ async def test_compaction_rejects_forbidden_tool_calls(monkeypatch):
     monkeypatch.setattr(compaction, "save_compaction_prompt_preview", Mock())
     with pytest.raises(ValueError, match="禁止的工具调用"):
         await build_context_summary([message("问题")], planner_snapshot=snapshot(), previous_summary=None,
-                                    recent_messages=[], session_id="test", max_summary_chars=6000)
+                                    recent_messages=[], session_id="test")
 
 
 @pytest.mark.asyncio
@@ -321,10 +321,10 @@ async def test_no_snapshot_defers_cut_and_learning(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response",
-    ["{}", "not json", json.dumps(state(background=["超长" * 5000]))],
-    ids=["missing-fields", "invalid-json", "oversized"],
+    ["{}", "not json", json.dumps(state(topics=[]))],
+    ids=["missing-fields", "invalid-json", "empty-state"],
 )
-async def test_invalid_or_oversized_summary_is_rejected(monkeypatch, response):
+async def test_invalid_or_empty_summary_is_rejected(monkeypatch, response):
     client = SimpleNamespace(
         generate_response_from_snapshot=AsyncMock(
             return_value=LLMResponseResult.from_portable_output(response=response),
@@ -339,7 +339,6 @@ async def test_invalid_or_oversized_summary_is_rejected(monkeypatch, response):
             previous_summary=None,
             recent_messages=[],
             session_id="test",
-            max_summary_chars=6000,
         )
 
 

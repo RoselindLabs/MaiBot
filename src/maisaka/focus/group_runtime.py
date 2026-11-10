@@ -24,6 +24,7 @@ from src.llm_models.exceptions import (
     ContentBlockedError,
     EmptyResponseException,
     ModelAttemptFailed,
+    LLMTaskTimeoutError,
     NetworkConnectionError,
     RespNotOkException,
     RespParseException,
@@ -39,13 +40,13 @@ from src.maisaka.context.messages import (
     ToolResultMessage,
     ToolResultMediaMessage,
 )
-from src.maisaka.context.emoji_candidates import EmojiCandidateMessage
 from src.maisaka.context.compaction import (
     ContextSummaryMessage, FocusCompactionTemplate, FocusRecoveryError, build_context_summary,
 )
 from src.maisaka.context.post_processor import process_chat_history_after_cycle
 from src.maisaka.mode_policy import build_consecutive_wait_reminders
-from src.maisaka.monitor.events import emit_flow_step, emit_planner_snapshot
+from src.maisaka.monitor.events import emit_flow_step, emit_planner_snapshot, emit_session_start
+from src.maisaka.display.stage_status_board import remove_stage_status, update_stage_status
 from src.maisaka.tool_result_condenser import condense_tool_result, should_condense_tool_result
 
 from .context import FocusCheckpointStore, FocusContextEntry, serialize_message
@@ -72,9 +73,7 @@ class FocusGroupRuntime:
         self.scope_id = scope_id
         self.members: Dict[str, MaisakaHeartFlowChatting] = {}
         self.entries: List[FocusContextEntry] = []
-        self._pending: Dict[str, List[FocusContextEntry]] = {}
-        self._ready: Set[str] = set()
-        self._debounce_tasks: Dict[str, asyncio.Task] = {}
+        self._pending: List[FocusContextEntry] = []
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._considered: Dict[str, int] = {}
         self._sequence = 0
@@ -86,10 +85,8 @@ class FocusGroupRuntime:
         # NEKO: N11 focus-recovery — 失败唤醒水位仅驻内存，不把旧事件当新输入。
         self._retry_after_sequence: Optional[int] = None
         self._hydrating = False
-        self.restored_session_ids: Set[str] = set()
         self._wait_until: Optional[float] = None
         self._wait_session_id: Optional[str] = None
-        self._wait_token: Optional[str] = None
         self._consecutive_waits = 0
         self._sent: List[FocusContextEntry] = []
         self._active_batch: Optional[FocusContextEntry] = None
@@ -107,6 +104,29 @@ class FocusGroupRuntime:
         self._checkpoint_dirty = False
 
     @property
+    def monitor_id(self) -> str:
+        """仅用于观察事件归档，不作为业务聊天流 ID。"""
+        return "focus:" + self.scope_id
+
+    @property
+    def monitor_name(self) -> str:
+        return "Focus · " + "、".join(member.session_name for member in self.members.values())
+
+    async def publish_monitor_session(self) -> None:
+        await emit_session_start(
+            self.monitor_id, self.monitor_name,
+            is_group_chat=False, group_id=None, user_id=None, platform="",
+            focus_session_ids=list(self.members),
+        )
+
+    def _publish_monitor_stage(self, stage: str, detail: str) -> None:
+        update_stage_status(
+            session_id=self.monitor_id, session_name=self.monitor_name,
+            stage=stage, detail=detail, agent_state=self.state, wait_until=self._wait_until,
+            focus_session_ids=list(self.members),
+        )
+
+    @property
     def history(self) -> List[LLMContextMessage]:
         return [message for entry in self.entries for message in entry.messages]
 
@@ -117,21 +137,21 @@ class FocusGroupRuntime:
     @property
     def state(self) -> str:
         # NEKO: N11 focus-recovery — 等新输入期间公开失败态，不伪装运行或主动重试。
-        if self._failed or self._retry_after_sequence is not None:
+        if self._failed or self._state == "failed" or self._retry_after_sequence is not None:
             return "failed"
         if self._wait_until is not None:
             return "wait"
         return self._state
 
-    async def restore(self) -> None:
+    async def restore(self) -> Set[str]:
         payload = await asyncio.to_thread(self._store.load)
         if not payload:
-            return
+            return set()
         self.entries = payload["entries"]
-        self.restored_session_ids = set().union(*(entry.session_ids for entry in self.entries))
+        session_ids = set().union(*(entry.session_ids for entry in self.entries))
         from .manager import focus_mode_manager
 
-        for sid in list(self.restored_session_ids):
+        for sid in session_ids:
             session = await asyncio.to_thread(chat_manager.get_existing_session_by_session_id, sid)
             if (
                 session is None
@@ -139,29 +159,23 @@ class FocusGroupRuntime:
                 or focus_mode_manager.get_focus_scope_key(sid) != self.scope_id
             ):
                 self.entries = [entry for entry in self.entries if sid not in entry.session_ids]
-                self.restored_session_ids.discard(sid)
         self._sequence = payload["sequence"]
         self._considered = payload["considered"]
         self._seen = OrderedDict((key, None) for key in payload["seen"])
         self._wait_until = payload["wait_until"]
         self._wait_session_id = payload["wait_session_id"]
-        self._wait_token = payload["wait_token"]
-        if self._wait_session_id not in self.restored_session_ids:
+        restored_session_ids = set().union(*(entry.session_ids for entry in self.entries))
+        if self._wait_session_id not in restored_session_ids:
             self._wait_until = None
             self._wait_session_id = None
-            self._wait_token = None
         self._consecutive_waits = payload["consecutive_waits"]
-        # 未完成判断的输入仍在时间线中，成员重新接入后安排处理；不重放旧工具。
-        for entry in self.entries:
-            self._ready.update(
-                sid for sid, sequence in entry.progress.items() if sequence > self._considered.get(sid, 0)
-            )
+        # 未完成判断的输入仍在时间线中，运行循环按进度继续处理；不重放旧工具。
+        return restored_session_ids
 
     async def checkpoint(self) -> None:
         async with self._checkpoint_lock:
             entries = self._closed_entries()
-            pending = [entry for batch in self._pending.values() for entry in batch]
-            entries.extend(sorted(pending, key=lambda entry: entry.sequence))
+            entries.extend(self._pending)
             entries.extend(self._sent)
             state = {
                 "sequence": self._sequence,
@@ -169,7 +183,6 @@ class FocusGroupRuntime:
                 "seen": list(self._seen),
                 "wait_until": self._wait_until,
                 "wait_session_id": self._wait_session_id,
-                "wait_token": self._wait_token,
                 "consecutive_waits": self._consecutive_waits,
             }
             await asyncio.to_thread(self._store.save, entries, state)
@@ -209,19 +222,17 @@ class FocusGroupRuntime:
 
     def add_member(self, runtime: MaisakaHeartFlowChatting) -> None:
         self.members[runtime.session_id] = runtime
-        # 恢复只属于目标聊天的工具媒体与表情编号映射，不把共享思考链送给回复器。
+        # 恢复只属于目标聊天的工具媒体，不把共享思考链送给回复器。
         for message in self.history:
             if (
-                isinstance(message, (ToolResultMediaMessage, EmojiCandidateMessage))
+                isinstance(message, ToolResultMediaMessage)
                 and message.session_id == runtime.session_id
             ):
                 runtime._chat_history.append(message)
-        if any(
+        if self._wait_until is not None or any(
             entry.progress.get(runtime.session_id, 0) > self._considered.get(runtime.session_id, 0)
             for entry in self.entries
         ):
-            self._ready.add(runtime.session_id)
-        if runtime.session_id in self._ready or self._wait_until is not None:
             self._event.set()
             self._ensure_worker()
 
@@ -244,16 +255,12 @@ class FocusGroupRuntime:
         self._generation += 1
         self._service.planner_request_snapshot = None
         await self._cancel_worker()
-        task = self._debounce_tasks.pop(session_id, None)
-        if task is not None:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
         self.members.pop(session_id, None)
-        pending = self._pending.pop(session_id, [])
+        pending = [entry for entry in self._pending if session_id in entry.session_ids]
+        self._pending = [entry for entry in self._pending if session_id not in entry.session_ids]
         if not clear_context:
             self.entries.extend(pending)
             self.entries.extend(entry for entry in self._sent if session_id in entry.session_ids)
-        self._ready.discard(session_id)
         self._sent = [entry for entry in self._sent if session_id not in entry.session_ids]
         if clear_context:
             # 混合思考/摘要不能可靠拆分，涉及被清空会话的整个原子段都失效。
@@ -264,6 +271,7 @@ class FocusGroupRuntime:
             self._finish_wait("发起等待的聊天已退出共享组")
         await self.checkpoint()
         if self.members:
+            await self.publish_monitor_session()
             self._ensure_worker()
             self._event.set()
 
@@ -277,21 +285,10 @@ class FocusGroupRuntime:
             return
         if history_message is not None:
             self._queue_entry(runtime.session_id, history_message)
-        awakened = message.is_at and self._wait_until is not None
-        if awakened:
+        if message.is_at and self._wait_until is not None:
             self._finish_wait(f"{runtime.session_name} 收到 @")
-        self._ready.discard(runtime.session_id)
-        task = self._debounce_tasks.get(runtime.session_id)
-        if task is None or task.done():
-            self._debounce_tasks[runtime.session_id] = asyncio.create_task(self._debounce(runtime))
-        if awakened:
-            # @ 唤醒必须把触发消息与等待期间缓存的输入一起带入下一次请求，
-            # 不能只先提交“等待结束”通知、把真正的 @ 留到另一个防抖批次。
-            self._ready.update(self._pending)
-        elif message.is_at:
-            # @ 只排队，不取消当前请求；下一次快照必须包含它，不能被普通防抖推迟到再下一轮。
-            self._ready.add(runtime.session_id)
-            self._event.set()
+        # 所有成员输入统一进入下一次快照；@ 只负责提前结束整组等待。
+        self._event.set()
         await self.checkpoint()
         self._ensure_worker()
 
@@ -309,7 +306,7 @@ class FocusGroupRuntime:
         inputs = (
             {session_id: [(self._sequence, message.message_id)]} if isinstance(message, SessionBackedMessage) else {}
         )
-        self._pending.setdefault(session_id, []).append(
+        self._pending.append(
             FocusContextEntry(
                 [message],
                 {session_id},
@@ -320,7 +317,7 @@ class FocusGroupRuntime:
 
     async def unprocessed_messages(self, session_id: str) -> List[SessionMessage]:
         """分组变更只交接未判断的真实输入，不搬运旧组思考或跨聊天摘要。"""
-        entries = [*self.entries, *self._pending.get(session_id, [])]
+        entries = [*self.entries, *self._pending]
         records = sorted(
             {
                 (sequence, message_id)
@@ -341,12 +338,6 @@ class FocusGroupRuntime:
             messages.append(message)
         return messages
 
-    async def _debounce(self, runtime: MaisakaHeartFlowChatting) -> None:
-        await runtime._wait_for_message_quiet_period()
-        if runtime.session_id in self.members:
-            self._ready.add(runtime.session_id)
-            self._event.set()
-
     def register_proactive(self, runtime: MaisakaHeartFlowChatting, trigger: SessionMessage) -> None:
         if not self._remember(runtime.session_id, "internal:" + trigger.message_id):
             return
@@ -363,7 +354,6 @@ class FocusGroupRuntime:
             display_prefix="[聊天任务事件]",
         )
         self._queue_entry(runtime.session_id, notice)
-        self._ready.add(runtime.session_id)
         self._event.set()
         self._ensure_worker()
         self._schedule_checkpoint()
@@ -385,6 +375,8 @@ class FocusGroupRuntime:
                 self._checkpoint_dirty = False
                 await self.checkpoint()
         except Exception:
+            self._state = "failed"
+            # NEKO: N11 focus-recovery — persistence failures remain terminal, unlike request failures.
             self._failed = True
             self._generation += 1
             logger.exception("Focus 回调事件保存失败: scope=%s", self.scope_id)
@@ -395,37 +387,31 @@ class FocusGroupRuntime:
         return session_id + "\0" + message_id in self._seen
 
     def _ensure_worker(self) -> None:
-        if self._closed or self._failed or self._hydrating:
+        if self._closed or self._state == "failed" or self._hydrating:
             return
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self.run())
 
-    def _set_stage(self, stage: str, detail: str) -> None:
-        # NEKO: N11 focus-recovery — 成员监控同步请求失败态，保留原等待语义。
-        failed = self._failed or self._retry_after_sequence is not None
-        self._state = "failed" if failed else ("wait" if self._wait_until is not None else "running")
+    def _set_stage(self, stage: str, detail: str, *, agent_state: Literal["running", "stop"] = "running") -> None:
+        # NEKO: N11 focus-recovery — publish the failure watermark through the upstream group monitor.
+        if self._state != "failed":
+            self._state = agent_state
+        self._publish_monitor_stage(stage, detail)
         for runtime in self.members.values():
-            runtime._agent_state = (
-                runtime._STATE_STOP if failed else
-                runtime._STATE_WAIT if self._wait_until is not None else runtime._STATE_RUNNING
+            runtime._agent_state = runtime._STATE_STOP if self.state == "failed" else self.state
+            # Planner 阶段只属于组级流，成员展示归属，避免看起来各自运行一轮规划。
+            runtime._update_stage_status(
+                "失败" if self.state == "failed" else "Focus 共享",
+                f"由 {self.monitor_name} 统一处理；{detail}",
+                wait_until=self._wait_until,
             )
-            runtime._update_stage_status(stage, f"Focus 共享组 · {detail}", wait_until=self._wait_until)
 
-    def _take_ready_inputs(self) -> List[FocusContextEntry]:
-        entries = []
-        for sid in list(self._ready):
-            if sid not in self.members:
-                continue
-            self._ready.discard(sid)
-            entries.extend(self._pending.pop(sid, []))
-            self.members[sid]._collect_pending_messages()
-            self.members[sid]._clear_forced_turn_state()
-        entries.sort(key=lambda entry: entry.sequence)
-        self.entries.extend(entries)
-        if self._sent:
-            self.entries.extend(self._sent)
-            self._sent.clear()
-        return entries
+    def _take_pending_inputs(self) -> None:
+        """按登记顺序一次接入整组输入，成员不再维护另一份待处理队列。"""
+        self.entries.extend(self._pending)
+        self._pending.clear()
+        self.entries.extend(self._sent)
+        self._sent.clear()
 
     def _roster(self) -> str:
         chats = []
@@ -436,46 +422,49 @@ class FocusGroupRuntime:
             chats.append(f"在 {runtime.session_name}({sid}) 中的注意信息：{instructions or '无额外注意信息'}")
         return "\n".join(chats)
 
-    def execute_control(self, name: str, arguments: Dict[str, Any], session_id: str) -> ToolExecutionResult:
-        if name == "wait":
-            seconds = arguments.get("seconds")
-            if type(seconds) is not int or seconds < 0:
-                return ToolExecutionResult(tool_name=name, success=False, error_message="seconds 必须是非负整数。")
+    def _apply_reply_control(self, result: ToolExecutionResult, session_id: str) -> None:
+        """成功回复后的控制作用于整个共享组，复用 reply 已校验的行为与等待时长。"""
+        if not result.success:
+            return
+        action = result.metadata.get("after_reply", "continue")
+        if action == "continue":
+            return
+        if action == "wait":
+            seconds = result.metadata["wait_seconds"]
             self._consecutive_waits += 1
             self._wait_until = time.time() + seconds
             self._wait_session_id = session_id
-            self._wait_token = uuid.uuid4().hex
             content = f"已为整个 Focus 共享组登记等待 {seconds} 秒；@ 可以提前唤醒。"
             if any(
                 isinstance(message, SessionBackedMessage) and message.original_message.is_at
-                for batch in self._pending.values()
-                for entry in batch
+                for entry in self._pending
                 for message in entry.messages
             ):
                 self._finish_wait("等待登记前已有尚未提交的 @ 消息")
-                self._ready.update(self._pending)
                 content = "已登记整组等待，但已有尚未提交的 @ 消息，立即继续下一次思考。"
         else:
             self._consecutive_waits = 0
             content = "已结束整个 Focus 共享组的本轮思考。"
-        return ToolExecutionResult(tool_name=name, success=True, content=content, metadata={"pause_execution": True})
+        result.content = f"{result.get_history_content()}\n{content}"
+        result.metadata["pause_execution"] = True
 
     def _finish_wait(self, reason: str) -> None:
         sid = self._wait_session_id
         self._wait_until = None
         self._wait_session_id = None
-        self._wait_token = None
-        if sid is not None:
-            self._queue_entry(
-                sid,
-                ReferenceMessage(
+        if sid is not None and self.members:
+            # 等待结束是整组事件；发起者退出后仍交给剩余成员，不留下孤立队列。
+            self._sequence += 1
+            self._pending.append(FocusContextEntry(
+                [ReferenceMessage(
                     content=f"session_id={sid} 发起的整组等待已结束：{reason}。请结合所有聊天的新消息继续判断。",
                     timestamp=datetime.now(),
                     remaining_uses_value=None,
                     display_prefix="[Focus 等待结束]",
-                ),
-            )
-            self._ready.add(sid)
+                )],
+                set(self.members),
+                self._sequence,
+            ))
         self._event.set()
 
     async def run(self) -> None:
@@ -504,20 +493,21 @@ class FocusGroupRuntime:
                     for sid, sequence in entry.progress.items()
                     if sid in self.members
                 )
-                ready_inputs = any(self._pending.get(sid) for sid in self._ready if sid in self.members)
-                if not ready_inputs and not restored_pending:
+                if not self._pending and not restored_pending:
                     self._state = "stop"
+                    self._publish_monitor_stage("空闲", "等待组内新消息")
                     for runtime in self.members.values():
                         runtime._agent_state = runtime._STATE_STOP
-                        runtime._update_stage_status("空闲", "Focus 共享组等待新消息")
+                        runtime._update_stage_status("Focus 共享", f"由 {self.monitor_name} 统一处理，等待组内新消息")
                     self._event.clear()
                     await self._event.wait()
                     continue
-                self._take_ready_inputs()
                 await self._run_turn()
         except asyncio.CancelledError:
             raise
         except Exception:
+            self._state = "failed"
+            # NEKO: N11 focus-recovery — only request exceptions are recoverable on new input.
             self._failed = True
             self._set_stage("失败", "共享 Planner 运行失败，输入已保留；请检查日志并重启运行时")
             logger.exception("Focus 共享 Planner 运行失败: scope=%s", self.scope_id)
@@ -530,7 +520,7 @@ class FocusGroupRuntime:
         for _ in range(MAX_INTERNAL_ROUNDS):
             if self._closed or self._wait_until is not None:
                 return
-            self._take_ready_inputs()
+            self._take_pending_inputs()
             # NEKO: N11 focus-recovery — 准备阶段独立显示，不混同模型请求耗时。
             self._set_stage("准备", "检查共享工具与聊天参考")
             await self._compact()
@@ -538,8 +528,8 @@ class FocusGroupRuntime:
             generation = self._generation
             self._set_stage("准备", "构建共享聊天参考")
             references = await self._build_references()
-            # 整理参考信息期间到达的就绪输入也接入本次请求；请求发出后使用固定快照。
-            self._take_ready_inputs()
+            # 整理参考信息期间到达的所有输入也接入本次请求；请求发出后使用固定快照。
+            self._take_pending_inputs()
             related = set(self.members)
             covered = [(sid, sequence) for entry in self.entries for sid, sequence in entry.progress.items()]
             history = self.history
@@ -568,7 +558,7 @@ class FocusGroupRuntime:
                     f"{phase} · {model}" if model else phase,
                 ))
             except (
-                ContentBlockedError, EmptyResponseException, ModelAttemptFailed,
+                ContentBlockedError, EmptyResponseException, ModelAttemptFailed, LLMTaskTimeoutError,
                 NetworkConnectionError, RespNotOkException, RespParseException,
                 FocusRecoveryError,
             ) as exc:
@@ -607,7 +597,7 @@ class FocusGroupRuntime:
                 event_type="planner.progress",
                 active_tool_call_id=response.tool_calls[0].call_id if response.tool_calls else "",
             )
-            monitor_tools, paused = await self._execute_tools(response, batch, logical_turn_id, generation)
+            monitor_tools, paused = await self._execute_tools(response, batch, generation)
             if self._sent:
                 self.entries.extend(self._sent)
                 self._sent.clear()
@@ -655,7 +645,6 @@ class FocusGroupRuntime:
         self,
         response: ChatResponse,
         batch: FocusContextEntry,
-        logical_turn_id: str,
         generation: int,
     ) -> Tuple[List[Dict[str, Any]], bool]:
         monitor = []
@@ -663,9 +652,9 @@ class FocusGroupRuntime:
         self._active_batch = batch
         self._post_messages = []
         call_turns = {
-            message.output_item.tool_call.call_id: message.output_item.meta.logical_turn_id
-            for message in response.raw_messages
-            if isinstance(message.output_item, FunctionCallItem)
+            item.tool_call.call_id: item.meta.logical_turn_id
+            for item in response.output_items
+            if isinstance(item, FunctionCallItem)
         }
         for index, call in enumerate(response.tool_calls):
             tool_started = time.time()
@@ -687,6 +676,10 @@ class FocusGroupRuntime:
                     response.content or "",
                 )
                 if runtime is not None:
+                    if result.metadata.get("after_reply") != "wait":
+                        self._consecutive_waits = 0
+                    if spec is not None and spec.provider_name == "maisaka_builtin" and spec.name == "reply":
+                        self._apply_reply_control(result, runtime.session_id)
                     await runtime._reasoning_engine._record_tool_execution_effects(invocation, result, spec)
                     raw_content = result.get_history_content()
                     if global_config.capabilities.tool_result_condense and should_condense_tool_result(
@@ -696,8 +689,6 @@ class FocusGroupRuntime:
                         already_previewed=result.metadata.get("web_result_preview") is True,
                     ):
                         condensed = await condense_tool_result(runtime, call, raw_content, response.content or "")
-                    if call.func_name != "wait":
-                        self._consecutive_waits = 0
             metadata = dict(result.metadata)
             metadata["focus_scope_id"] = self.scope_id
             content = condensed if condensed is not None else result.get_history_content()
@@ -710,7 +701,7 @@ class FocusGroupRuntime:
                     content=content or ("工具执行成功。" if result.success else "工具执行失败。"),
                     timestamp=datetime.now(),
                     tool_call_id=call.call_id,
-                    logical_turn_id=call_turns.get(call.call_id) or logical_turn_id,
+                    logical_turn_id=call_turns[call.call_id],
                     tool_name=call.func_name,
                     success=result.success,
                     metadata=metadata,
@@ -722,9 +713,6 @@ class FocusGroupRuntime:
                 media = runtime._chat_history[before_media:]
                 self._post_messages.extend(media)
                 post = [message for message in result.post_history_messages if isinstance(message, LLMContextMessage)]
-                for message in post:
-                    if isinstance(message, EmojiCandidateMessage):
-                        message.session_id = runtime.session_id
                 runtime._chat_history.extend(post)
                 self._post_messages.extend(post)
             item = {
@@ -819,7 +807,7 @@ class FocusGroupRuntime:
             )
         await emit_planner_snapshot(
             event_type=event_type,
-            session_id=session_id,
+            session_id=self.monitor_id,
             run_id=self._run_id,
             cycle_id=self._cycle,
             planner_request_messages=response.request_messages,
@@ -889,7 +877,7 @@ class FocusGroupRuntime:
                     f"messages={[(message.timestamp.isoformat(), message.source) for message in item.messages]}"
                     for item in snapshot
                 ),
-                session_id=self.scope_id, max_summary_chars=global_config.chat.context_compaction_summary_max_chars,
+                session_id=self.scope_id,
             )
         except Exception:
             logger.exception("Focus 上下文压缩失败，将丢弃本批旧原文并继续共享 Planner: scope=%s", self.scope_id)
@@ -918,7 +906,7 @@ class FocusGroupRuntime:
         self._service.planner_request_snapshot = None
         if self.members:
             await emit_flow_step(
-                session_id=next(iter(self.members)),
+                session_id=self.monitor_id,
                 run_id=self._run_id,
                 cycle_id=self._cycle,
                 step="focus.context.compacted" if summary is not None else "focus.context.trimmed",
@@ -979,7 +967,7 @@ class FocusGroupRuntime:
         batches: List[List[FocusContextEntry]] = []
         size = 0
         for entry in old:
-            cost = max(1, entry.size)
+            cost = max(1, sum(message.count_in_context for message in entry.messages))
             if cost > self.max_context_size:
                 raise FocusRecoveryError("单个完整条目超过恢复条数限制，输入已保留")
             if not batches or size + cost > self.max_context_size:
@@ -1034,7 +1022,6 @@ class FocusGroupRuntime:
                         for entry in batch
                     ),
                     session_id=self.scope_id,
-                    max_summary_chars=global_config.chat.context_compaction_summary_max_chars,
                 )
                 if not still_current():
                     raise FocusRecoveryError("共享压缩结果已失效")
@@ -1077,9 +1064,7 @@ class FocusGroupRuntime:
     async def stop(self) -> None:
         self._closed = True
         await self._cancel_worker()
-        for task in self._debounce_tasks.values():
-            task.cancel()
-        await asyncio.gather(*self._debounce_tasks.values(), return_exceptions=True)
+        remove_stage_status(self.monitor_id)
         if self._checkpoint_task is not None:
             await self._checkpoint_task
         await self.checkpoint()

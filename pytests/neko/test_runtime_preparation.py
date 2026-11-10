@@ -104,7 +104,6 @@ def test_relocated_templates_resolve_with_metadata(locale):
 
     names = (
         "agent_acp",
-        "agent_acp_computer",
         "agent_acp_environment",
         "agent_acp_failure",
         "agent_planner",

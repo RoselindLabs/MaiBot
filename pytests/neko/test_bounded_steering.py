@@ -28,6 +28,7 @@ class LoopHarness:
         self.preparations = 0
         self.failure = None
         self.runtime = SimpleNamespace(
+            scene=SimpleNamespace(silent_reason="synthetic silence"),
             _running=True,
             _internal_turn_queue=asyncio.Queue(),
             _agent_state="running",

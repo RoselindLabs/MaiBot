@@ -67,16 +67,20 @@ def _response(content: str = "安慰对方，简短回应。", calls: Optional[L
 @pytest.fixture
 def engine(monkeypatch) -> MaisakaReasoningEngine:
     monkeypatch.setattr(global_config.experimental, "passive_replyer", True)
+    monkeypatch.setattr(reply_module, "get_bot_account", lambda *args: "bot")
+    monkeypatch.setattr(reply_module, "get_reply_extensions", lambda context: {})
     runtime = SimpleNamespace(
         session_id="chat",
         log_prefix="[test]",
         _chat_history=[_history(_message("original"))],
-        chat_stream=SimpleNamespace(platform="test", is_group_session=True, group_id="group", user_id=""),
+        chat_stream=SimpleNamespace(platform="test", is_group_session=True, group_id="group", user_id="", account_id="bot"),
         _end_planner_continuation=Mock(),
         _reset_consecutive_wait_count=Mock(),
         # Match the real 1.3.15 runtime; both reply-target cases read this field.
         _consecutive_wait_count=0,
         _enter_stop_state=Mock(),
+        _has_pending_messages=lambda: False,
+        build_retro_reply_history=AsyncMock(return_value=[]),
         _update_stage_status=Mock(),
         expand_message_id_aliases=lambda args: args,
         is_action_tool_currently_available=lambda name: name != "reply",
@@ -246,7 +250,7 @@ async def test_reply_target_is_fixed_before_request_and_refreshed_next_round(eng
     for state in (first, second):
         if state.reply_target_message is not None:
             _, probability = await reply_module._resolve_reply_quote(
-                BuiltinToolRuntimeContext(engine, engine._runtime), "回复正文", state.reply_target_message
+                BuiltinToolRuntimeContext(engine, engine._runtime), "回复正文", state.reply_target_message, "bot"
             )
             assert 0 <= probability <= 1
 
@@ -307,7 +311,7 @@ def test_prompt_and_tail_reminder_follow_experimental_switch(monkeypatch, locale
         reminder = service._build_planner_final_user_reminder()
     assert ("reply_reference" in prompt) is (not enabled)
     assert "set_reply_options" not in prompt
-    assert "stop()" in prompt and "wait()" in prompt
+    assert ("stop()" in prompt and "wait()" in prompt) if enabled else ("after_reply" in prompt and "wait" in prompt)
     if enabled:
         assert "stop" in reminder and "wait" in reminder
     else:
@@ -377,7 +381,6 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
     engine, monkeypatch, failure, supplemented,
 ):
     monkeypatch.setattr(global_config.chat, "enable_reply_at", True)
-    monkeypatch.setattr(global_config.emoji, "use_new_send_logic", True)
     target = engine._runtime._chat_history[0].original_message
     generation = ReplyGenerationResult(success=True, completion=LLMCompletionResult(response_text="实际回复"))
     generator = SimpleNamespace(generate_reply_with_context=AsyncMock(return_value=(True, generation)))
@@ -388,17 +391,19 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
         parameters={"test.ext": {"mode": "image"}},
         reply_id="reply-id",
         call_id="execution",
-        extra_prompt="插件提示",
+        extra_prompt="" if supplemented else "插件提示",
         prepare=AsyncMock(),
         transform=AsyncMock(side_effect=lambda text, items: items),
         ensure_active=Mock(),
     )
     monkeypatch.setattr(reply_module, "ReplyExtensionExecution", lambda **kwargs: extension)
     monkeypatch.setattr(reply_module, "_invoke_before_post_process_hook", AsyncMock(return_value=("实际回复", {})))
-    monkeypatch.setattr(reply_module, "_resolve_reply_quote", AsyncMock(return_value=(False, None)))
+    monkeypatch.setattr(reply_module, "_resolve_reply_quote", AsyncMock(return_value=(supplemented, None)))
     monkeypatch.setattr(reply_module, "is_bot_self", lambda *args: False)
     context = BuiltinToolRuntimeContext(engine, engine._runtime)
     delivered = AsyncMock()
+    attachments = AsyncMock(return_value=[])
+    monkeypatch.setattr(context, "resolve_reply_attachments", attachments)
     monkeypatch.setattr(context, "get_runtime_manager", lambda: SimpleNamespace(invoke_hook=delivered))
     process = AsyncMock(
         return_value=[
@@ -427,11 +432,14 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
     if supplemented:
         supplement_runner = AsyncMock(return_value=ReplySupplement(
             plan=ReplySupplementPlan.model_validate({
+                "plugin_options": arguments["plugin_options"],
                 "msg_id": "original", "parts": [{"type": "pic", "source": "original", "index": 0},
                                                   {"type": "reply"}],
             }),
-            quote_message=target,
-            components=[ImageComponent(binary_hash="synthetic", content="image", binary_data=b"synthetic"), None],
+            target_message=target,
+            attachments=asyncio.create_task(asyncio.sleep(0, result=[
+                ImageComponent(binary_hash="synthetic", content="image", binary_data=b"synthetic"), None,
+            ])),
             metadata={"synthetic": True},
         ))
     result = await reply_module.execute_reply(
@@ -447,13 +455,15 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
     extension.prepare.assert_awaited_once_with(arguments["plugin_options"])
     extension.transform.assert_awaited_once()
     if supplemented:
-        assert process.call_args.args[1] is None
+        assert process.call_args.kwargs["resolved_attachments"] is None
+        attachments.assert_not_called()
         supplement_runner.assert_awaited_once()
         assert send.await_args_list[0].kwargs["set_reply"] is False
         assert send.await_args_list[1].kwargs["set_reply"] is True
         assert send.await_args_list[1].kwargs["reply_message"] is target
     else:
-        assert process.call_args.args[1] == arguments
+        assert process.call_args.kwargs["resolved_attachments"].done()
+        attachments.assert_awaited_once_with(arguments)
     assert send.await_count == 2 + int(supplemented)
     expected_ids = (["sent-picture"] if supplemented else []) + (["sent-1"] if failure else ["sent-1", "sent-2"])
     assert result.metadata["sent_message_ids"] == expected_ids

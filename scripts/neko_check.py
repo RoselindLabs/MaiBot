@@ -63,6 +63,14 @@ def main():
             PYTHONPATH=str(ROOT / "scripts") + os.pathsep + str(ROOT),
             PYTEST_DISABLE_PLUGIN_AUTOLOAD="1",
             PYTHONIOENCODING="utf-8",
+            MAIBOT_RUNTIME_CONTEXT=json.dumps(
+                {
+                    "bot_id": "0" * 32,
+                    "http_endpoint": str(Path(temporary) / "synthetic.sock"),
+                    "public_base_url": "http://synthetic.invalid",
+                    "status_path": str(Path(temporary) / "worker-status.json"),
+                }
+            ),
             NEKO_RETIRED_LIFE_TESTS="1" if args.include_retired_life else "0",
         )
         result = subprocess.run(
