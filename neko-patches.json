@@ -36,7 +36,6 @@
     "src/plugin_runtime/protocol/envelope.py": "f8c70813ac75ce2bca8e6d3027b4bf1ead137477aba997f8a40fd225baacf73f",
     "src/plugin_runtime/host/rpc_server.py": "73f7ab5667dd3eac1b3eb113a6bfc252bf62308f8bf0569a2772c771325ef656",
     "src/plugin_runtime/runner/rpc_client.py": "dd82fc2dcf85cdceefefdf9e08e83398934298851d631a8e99eab85f50f73166",
-    "src/plugins/built_in/telegram_adapter/codec.py": "c8777ae1628e6ae545ebdb261ba0592fd4f3b5e486ad6c8ff610902cf3db623a",
     "uv.lock": "cbfccd4168de1e87e11de06862e5594c752d45c91a1c760ed0332df63f45f753"
   }
 }

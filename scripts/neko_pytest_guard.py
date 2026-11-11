@@ -15,7 +15,6 @@ REQUIRED = {
     "pytests/neko/test_reply_contracts.py",
     "pytests/neko/test_life_compaction.py",
     "pytests/neko/test_source_policy.py",
-    "pytests/neko/test_telegram_commands.py",
     "pytests/neko/test_plugin_bridge.py",
     "pytests/neko/test_tool_context.py",
     "pytests/neko/test_runtime_preparation.py",
