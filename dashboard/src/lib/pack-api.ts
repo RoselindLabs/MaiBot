@@ -7,6 +7,8 @@
  * 本文件只声明 endpoint、业务错误文案与 Pack 服务包络的解包规则。
  */
 import { ApiError, backendApi, statsApi } from '@/lib/http'
+import { assertGeminiFallbacks } from '@/routes/config/model/geminiFallback'
+import type { TaskConfig } from '@/routes/config/model/types'
 
 // ============ 类型定义 ============
 
@@ -26,6 +28,7 @@ export interface PackProvider {
  * 模型配置
  */
 export interface PackModel {
+  model_type?: 'llm' | 'embedding' | 'image_embedding'
   model_identifier: string
   name: string
   api_provider: string
@@ -40,11 +43,7 @@ export interface PackModel {
 /**
  * 单个任务配置
  */
-export interface PackTaskConfig {
-  model_list: string[]
-  temperature?: number
-  max_tokens?: number
-}
+export type PackTaskConfig = TaskConfig
 
 /**
  * 所有任务配置
@@ -399,7 +398,8 @@ export async function applyPack(
         appliedModelNames.has(name)
       )
 
-      if (filteredModelList.length === 0) continue
+      // NEKO: N08 gemini-fallback — partial imports must not silently discard a custom target.
+      if (filteredModelList.length === 0 && packTaskConfig.gemini_fallback_mode !== 'custom') continue
 
       const newTaskConfig = {
         ...packTaskConfig,
@@ -427,6 +427,7 @@ export async function applyPack(
   }
 
   // 保存配置（原实现不读取保存接口的响应体，保持 parse: 'response'）
+  assertGeminiFallbacks(currentConfig.model_task_config, currentConfig.models)
   await backendApi.post('/api/webui/config/model', {
     body: currentConfig,
     parse: 'response',

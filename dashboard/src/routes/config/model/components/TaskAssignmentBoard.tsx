@@ -18,7 +18,7 @@ import {
 import { FormRow, FormSection, FormUnit } from '@/components/ui/form-section'
 import { Input } from '@/components/ui/input'
 import { OrderControls } from '@/components/ui/order-controls'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger } from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { StatusLight } from '@/components/ui/status-light'
 import { DataPanel } from '@/components/ui/surface'
 import { cn } from '@/lib/utils'
@@ -27,6 +27,7 @@ import '@/styles/task-board.css'
 
 import { TASK_META, type TaskMeta } from '../taskMeta'
 import type { ModelInfo, ModelTaskConfig, TaskConfig } from '../types'
+import { geminiFallbackError } from '../geminiFallback'
 
 const BASIC_TASKS = ['replyer', 'planner', 'utils', 'vlm']
 
@@ -260,6 +261,7 @@ export function TaskAssignmentBoard({
             field={editingField}
             meta={metaOf(editingField)}
             config={taskConfig[editingField.name] ?? { model_list: [] }}
+            models={models}
             candidates={
               editingField.name === 'web_search'
                 ? webServices.map((name) => ({ name }))
@@ -352,6 +354,7 @@ function TaskEditor({
   field,
   meta,
   config,
+  models,
   candidates,
   onChange,
   onAddWebService,
@@ -361,6 +364,7 @@ function TaskEditor({
   field: FieldSchema
   meta: TaskMeta
   config: TaskConfig
+  models: ModelInfo[]
   candidates: TaskCandidate[]
   onChange: (key: TaskField, value: string[] | number | string) => void
   onAddWebService: () => void
@@ -369,6 +373,10 @@ function TaskEditor({
 }) {
   const list = config.model_list
   const isWeb = field.name === 'web_search'
+  const isGenerationTask = !isWeb && !['embedding', 'image_embedding'].includes(field.name)
+  const fallbackMode = config.gemini_fallback_mode ?? 'legacy_grok'
+  const fallbackTargets = models.filter((model) => model.model_type === 'llm' && list.includes(model.name))
+  const fallbackError = geminiFallbackError(config, models)
   const single = Boolean(meta.singleModel)
   const addable = candidates.filter((candidate) => !list.includes(candidate.name))
   const tagsOf = (name: string) => candidates.find((candidate) => candidate.name === name)?.tags
@@ -530,6 +538,39 @@ function TaskEditor({
               <p className="pt-2 text-xs text-muted-foreground">
                 {STRATEGIES.find((item) => item.value === strategy)?.hint}
               </p>
+            </FormSection>
+          )}
+
+          {isGenerationTask && (
+            <FormSection title="Gemini 拦截回落">
+              <FormRow label="回落方式" htmlFor={`task-${field.name}-gemini-mode`}>
+                <Select value={fallbackMode} onValueChange={(value) => onChange('gemini_fallback_mode', value)}>
+                  <SelectTrigger id={`task-${field.name}-gemini-mode`} className="w-40" aria-describedby={`task-${field.name}-gemini-help`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="legacy_grok">默认（Grok）</SelectItem>
+                    <SelectItem value="custom">指定模型</SelectItem>
+                    <SelectItem value="disabled">关闭</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormRow>
+              {fallbackMode === 'custom' && (
+                <div className="space-y-2 pt-2">
+                  <label className="text-sm" htmlFor={`task-${field.name}-gemini-target`}>回落目标</label>
+                  <Select value={config.gemini_fallback_model ?? ''} onValueChange={(value) => onChange('gemini_fallback_model', value)}>
+                    <SelectTrigger id={`task-${field.name}-gemini-target`} className="w-full min-w-0" aria-invalid={Boolean(fallbackError)} aria-describedby={fallbackError ? `task-${field.name}-gemini-error` : undefined}>
+                      <SelectValue placeholder="选择本任务中的生成模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fallbackTargets.map((model) => <SelectItem key={model.name} value={model.name}>{model.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {fallbackTargets.length === 0 && <p className="text-xs text-muted-foreground">请先在上方为本任务添加生成模型。</p>}
+                </div>
+              )}
+              <p id={`task-${field.name}-gemini-help`} className="pt-2 text-xs text-muted-foreground">仅针对明确的 Gemini 内容拦截；普通失败仍按原候选处理。</p>
+              {fallbackError && <p id={`task-${field.name}-gemini-error`} role="alert" className="pt-2 text-xs text-destructive">{fallbackError}尚未保存。</p>}
             </FormSection>
           )}
 

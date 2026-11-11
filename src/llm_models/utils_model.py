@@ -1402,15 +1402,21 @@ class LLMOrchestrator:
         for model_index in range(max_attempts):
             selected_override = model_name
             if content_block_fallback:
-                # NEKO: N08 gemini-fallback — 仅任务内精确API标识交集，有限备用后不回原模型。
-                # Only exact API identifiers in this task are eligible, never display-name guesses.
+                # NEKO: N08 gemini-fallback — 只筛本任务候选；custom不退回Grok，禁用不定向切换。
                 self._refresh_task_config()
+                fallback_mode = self.model_for_task.gemini_fallback_mode
                 selected_override = next(
                     (
                         name for name in self.model_for_task.model_list
                         if name not in failed_models_this_request
-                        and TempMethodsLLMUtils.get_model_info_by_name(name).model_identifier
-                        in {"grok-4.5", "grok-4.6", "grok-4.7"}
+                        and (
+                            fallback_mode == "legacy_grok"
+                            and TempMethodsLLMUtils.get_model_info_by_name(name).model_identifier
+                            in {"grok-4.5", "grok-4.6", "grok-4.7"}
+                            or fallback_mode == "custom"
+                            and name == self.model_for_task.gemini_fallback_model
+                            and TempMethodsLLMUtils.get_model_info_by_name(name).model_type == "llm"
+                        )
                     ),
                     None,
                 )
@@ -1488,8 +1494,8 @@ class LLMOrchestrator:
                 raise e
 
             except ContentBlockedError as e:
-                # NEKO: N08 gemini-fallback — 未输出且未锁模型才走任务内精确Grok交集，不重试原模型。
-                # 内容拦截不惩罚可用性；仅未输出、未锁定模型的请求可定向切 Grok。
+                # NEKO: N08 gemini-fallback — 未输出且未锁模型才走任务内配置备用，不重试原模型。
+                # 内容拦截不惩罚可用性；仅未输出、未锁定模型的请求可定向切换。
                 self._adjust_model_usage(model_info.name, usage_penalty_delta=-1)
                 if not str(model_name or "").strip() and not e.stream_started:
                     failed_models_this_request.add(model_info.name)
@@ -1500,7 +1506,7 @@ class LLMOrchestrator:
                     report_progress(self.request_type, "切换候选（内容拦截）", model_info.name)
                     await asyncio.to_thread(update_failed_request_attempt, e, status="switching_model")
                     logger.warning(
-                        f"模型 '{model_info.name}' 返回 PROHIBITED_CONTENT，停止原模型重试，检查任务内 Grok 备用。"
+                        f"模型 '{model_info.name}' 返回 PROHIBITED_CONTENT，停止原模型重试，检查任务内配置备用。"
                     )
                     continue
                 await asyncio.to_thread(mark_request_final_failure, e)

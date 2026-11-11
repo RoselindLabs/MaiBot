@@ -43,6 +43,12 @@ def save_effective_config(catalog_path: Path, local_path: Path, submitted: Dict[
         previous = read_catalog(catalog_path)
         catalog = extract_catalog(submitted)
         validate_catalog(catalog)
+        # NEKO: N08 gemini-fallback — 当前Bot非法目标必须拒绝，不能借已有错误差集绕过。
+        from src.config.shared_models import gemini_fallback_reference_errors
+
+        fallback_errors = gemini_fallback_reference_errors(submitted)
+        if fallback_errors:
+            raise ValueError("；".join(sorted(fallback_errors)))
         _check_references(Registry(host.parent), previous, catalog, local_path, submitted)
         local = tomlkit.parse(local_path.read_text(encoding="utf-8"))
         local_data = extract_bot_model_settings(submitted)

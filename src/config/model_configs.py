@@ -396,6 +396,25 @@ class TaskConfig(ConfigBase):
     )
     """使用的模型列表, 每个元素对应上面的模型名称(name)"""
 
+    # NEKO: N08 gemini-fallback — 任务内定向备用，旧配置保持精确Grok交集。
+    gemini_fallback_mode: Literal["legacy_grok", "custom", "disabled"] = Field(
+        default="legacy_grok",
+        json_schema_extra={
+            "x-widget": "select",
+            "options": ["legacy_grok", "custom", "disabled"],
+            "advanced": True,
+        },
+    )
+    """Gemini明确内容拦截后的备用策略：legacy_grok按本任务顺序使用精确API标识grok-4.5/4.6/4.7；
+    custom使用本任务内指定的生成模型；disabled停止定向备用。仅未指定单模型且未交出流式块时生效。"""
+
+    gemini_fallback_model: str = Field(
+        default="",
+        json_schema_extra={"x-widget": "custom", "advanced": True},
+    )
+    """custom模式的备用模型名称（ModelInfo.name），必须是本任务model_list中的有效生成模型；
+    非custom模式忽略此值，保存时清空。空目标或失效引用会拒绝保存。"""
+
     max_tokens: int = Field(
         default=4096,
         ge=1,

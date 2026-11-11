@@ -55,6 +55,8 @@ def read_effective_config(path: Path) -> Dict[str, Any]:
 def extract_bot_model_settings(submitted: Dict[str, Any]) -> Dict[str, Any]:
     """实例文件只保存任务等独立设置，公共模型定义由统一写入服务保存。"""
     result = copy.deepcopy(submitted)
+    # NEKO: N08 gemini-fallback — 实例沿原任务路径保存，退出custom不留下生效目标。
+    normalize_gemini_fallback_settings(result)
     result.pop("_shared_catalog", None)
     result.pop("_warnings", None)
     for section in CATALOG_SECTIONS:
@@ -93,9 +95,43 @@ def validate_catalog(data: Dict[str, Any]) -> None:
     WebConfig.model_validate(data.get("web", {}))
 
 
+def normalize_gemini_fallback_settings(data: Dict[str, Any]) -> None:
+    """NEKO: N08 gemini-fallback — 保存时清空非custom目标，兼容旧字段缺省。"""
+    for task_name, task in data.get("model_task_config", {}).items():
+        if task_name == "web_search" or not isinstance(task, dict):
+            continue
+        task.setdefault("gemini_fallback_mode", "legacy_grok")
+        if task["gemini_fallback_mode"] != "custom":
+            task["gemini_fallback_model"] = ""
+
+
+def gemini_fallback_reference_errors(data: Dict[str, Any]) -> Set[str]:
+    """NEKO: N08 gemini-fallback — 同一引用合同用于当前配置及跨Bot目录删除保护。"""
+    errors: Set[str] = set()
+    models = {item["name"]: item for item in data.get("models", [])}
+    providers = {item.get("name", "") for item in data.get("api_providers", [])}
+    for task_name, task in data.get("model_task_config", {}).items():
+        if not isinstance(task, dict) or task_name == "web_search" or task.get("gemini_fallback_mode", "legacy_grok") != "custom":
+            continue
+        target = task.get("gemini_fallback_model", "")
+        prefix = f"任务 model_task_config.{task_name} 的Gemini备用模型"
+        if not isinstance(target, str) or not target.strip():
+            errors.add(f"{prefix}不能为空")
+        elif target not in models:
+            errors.add(f"{prefix} {target!r} 不存在")
+        elif target not in task.get("model_list", []):
+            errors.add(f"{prefix} {target!r} 必须在本任务model_list中")
+        elif models[target].get("model_type", "llm") != "llm":
+            errors.add(f"{prefix} {target!r} 必须是生成模型(llm)")
+        elif models[target].get("api_provider", "") not in providers:
+            errors.add(f"{prefix} {target!r} 引用的供应商不存在")
+    return errors
+
+
 def missing_references(data: Dict[str, Any]) -> Set[str]:
     """收集具体失效引用，目录修改不能扩大已有配置错误。"""
-    errors: Set[str] = set()
+    # NEKO: N08 gemini-fallback — 目录变更不能引入新的定向备用失效引用。
+    errors = gemini_fallback_reference_errors(data)
     providers = {item.get("name", "") for item in data.get("api_providers", []) if item.get("name", "").strip()}
     models = {item["name"] for item in data.get("models", [])}
     for model in data.get("models", []):

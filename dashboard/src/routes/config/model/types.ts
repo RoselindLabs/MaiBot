@@ -55,6 +55,9 @@ export interface TaskConfig {
   max_tokens?: number
   hard_timeout?: number
   selection_strategy?: string
+  // NEKO: N08 gemini-fallback — absent fields retain the legacy Grok policy.
+  gemini_fallback_mode?: 'legacy_grok' | 'custom' | 'disabled'
+  gemini_fallback_model?: string
 }
 
 /**

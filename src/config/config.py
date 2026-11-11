@@ -75,7 +75,8 @@ MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute(
 LEGACY_ENV_PATH: Path = (PROJECT_ROOT / ".env").resolve().absolute()
 MMC_VERSION: str = read_project_version(PROJECT_ROOT)
 CONFIG_VERSION: str = "8.16.18"
-MODEL_CONFIG_VERSION: str = "1.17.25"
+# NEKO: N08 gemini-fallback — 新任务字段按既有模板迁移，缺省保持legacy_grok。
+MODEL_CONFIG_VERSION: str = "1.17.26"
 
 logger = get_logger("config")
 
@@ -204,6 +205,13 @@ class ModelConfig(ConfigBase):
         model_names = [model.name for model in self.models]
         if len(model_names) != len(set(model_names)):
             raise ValueError(t("config.model_name_duplicate"))
+
+        # NEKO: N08 gemini-fallback — 保存、文件加载和热重载共用目标引用校验。
+        from .shared_models import gemini_fallback_reference_errors
+
+        fallback_errors = gemini_fallback_reference_errors(self.model_dump())
+        if fallback_errors:
+            raise ValueError("；".join(sorted(fallback_errors)))
 
         return super().model_post_init(context)
 
@@ -868,6 +876,12 @@ def write_config_to_file(
             full_config_data.add(config_item_name, aot)
         else:
             raise TypeError(t("config.write_unsupported_type"))
+
+    # NEKO: N08 gemini-fallback — 默认模板与版本迁移写出同样清除非custom残留。
+    if isinstance(config, ModelConfig):
+        from .shared_models import normalize_gemini_fallback_settings
+
+        normalize_gemini_fallback_settings(full_config_data)
 
     if isinstance(config, ModelConfig) and shared_models_path() is not None and "web" in full_config_data:
         full_config_data["web"].pop("services", None)

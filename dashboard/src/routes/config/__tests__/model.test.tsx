@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render as renderWithoutProviders, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,6 +9,7 @@ import * as configApi from '@/lib/config-api'
 import * as configSearchNavigation from '@/lib/config-search-navigation'
 import * as expressionApi from '@/lib/expression-api'
 import * as memoryApi from '@/lib/memory-api'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 const toastMock = vi.fn()
 const routeState = vi.hoisted(() => ({ searchStr: '' }))
@@ -326,6 +327,10 @@ beforeEach(() => {
   } as never)
   vi.mocked(configApi.fetchProviderModels).mockResolvedValue([])
 })
+
+function render(ui: React.ReactElement) {
+  return renderWithoutProviders(ui, { wrapper: TooltipProvider })
+}
 
 async function renderModelPage() {
   render(<ModelConfigPage />)
@@ -911,7 +916,8 @@ describe('ModelConfigPage 特征化', () => {
   it('无效模型引用可一键清理', async () => {
     const user = userEvent.setup()
     const invalidConfig = {
-      ...baseConfig(),
+      ...withEmbeddingModels(),
+      _warnings: ['replyer 引用了不存在的模型: ghost-model'],
       model_task_config: {
         replyer: { model_list: ['ghost-model'] },
         embedding: { model_list: ['old-embed-model'] },
@@ -921,11 +927,18 @@ describe('ModelConfigPage 特征化', () => {
     vi.mocked(configApi.getModelConfig).mockResolvedValue(invalidConfig as never)
 
     await renderModelPage()
-    expect(screen.getByText('检测到无效的模型引用')).toBeInTheDocument()
+    expect(screen.getByText('模型配置需要修正')).toBeInTheDocument()
     expect(screen.getByText(/引用了不存在的模型: ghost-model/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: '一键清理' }))
-    await waitFor(() => expect(screen.queryByText('检测到无效的模型引用')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: '一键清理' })).not.toBeInTheDocument())
+    await waitFor(() => expect(configApi.updateModelConfigSection).toHaveBeenCalledWith(
+      'model_task_config',
+      {
+        replyer: { model_list: [] },
+        embedding: { model_list: ['old-embed-model'] },
+      }
+    ), { timeout: 3000 })
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '清理完成', description: '已删除所有无效的模型引用' })
     )

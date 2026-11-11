@@ -1365,6 +1365,10 @@ def _save_effective_model_config(data: Dict[str, Any], revision: str | None = No
     submitted.pop("_warnings", None)
     submitted = _coerce_config_numeric_values(submitted, ModelConfig)
     ModelConfig.from_dict(AttributeData(), copy.deepcopy(submitted))
+    # NEKO: N08 gemini-fallback — 清除非custom残留，仍走原保存事务及热重载。
+    from src.config.shared_models import normalize_gemini_fallback_settings
+
+    normalize_gemini_fallback_settings(submitted)
     catalog_path = shared_models_path()
     if catalog_path is not None:
         from src.host.shared_models import save_effective_config

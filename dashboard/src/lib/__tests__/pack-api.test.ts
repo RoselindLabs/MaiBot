@@ -130,6 +130,23 @@ function makeApplyOptions(overrides: Partial<ApplyPackOptions> = {}): ApplyPackO
 
 // ============ Pack 服务（statsApi）接口 ============
 
+describe('Gemini 回落 Pack 往返', () => {
+  it('保留导入自定义目标，部分导入移除目标时拒绝保存', async () => {
+    const pack = makePack({
+      models: [makeModel({ model_type: 'llm' })],
+      task_config: { replyer: { model_list: ['gpt-4o'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'gpt-4o' } },
+    })
+    backendGetMock.mockResolvedValue({ config: makeLocalConfig() })
+    await applyPack(pack, makeApplyOptions({ apply_models: true, apply_task_config: true }), {}, {})
+    const body = (backendPostMock.mock.calls[0][1] as { body: LocalConfig }).body
+    expect(JSON.parse(JSON.stringify(body.model_task_config.replyer))).toEqual(pack.task_config.replyer)
+    backendPostMock.mockClear()
+    backendGetMock.mockResolvedValue({ config: makeLocalConfig() })
+    await expect(applyPack(pack, makeApplyOptions({ apply_models: true, apply_task_config: true, selected_models: [] }), {}, {})).rejects.toThrow('已失效')
+    expect(backendPostMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('listPacks', () => {
   it('把筛选参数透传为 query 并返回响应体', async () => {
     const response = { packs: [], total: 0, page: 2, page_size: 20, total_pages: 0 }

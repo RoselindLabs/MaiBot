@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import type { ModelInfo, ModelTaskConfig } from '../types'
 import { serializeModel } from '../serializeModel'
+import { assertGeminiFallbacks } from '../geminiFallback'
 
 type EnqueueConfigWrite = (operation: () => Promise<void>) => Promise<void>
 
@@ -98,6 +99,8 @@ export function useModelAutoSave(options: UseModelAutoSaveOptions): UseModelAuto
   const pendingTaskConfigSaveCountRef = useRef(0)
   const activeSaveCountRef = useRef(0)
   const isMountedRef = useRef(true)
+  const latestDraftRef = useRef({ models, taskConfig })
+  latestDraftRef.current = { models, taskConfig }
 
   const publishUnsavedState = useCallback(() => {
     if (!isMountedRef.current) return
@@ -220,6 +223,7 @@ export function useModelAutoSave(options: UseModelAutoSaveOptions): UseModelAuto
 
       return enqueueWrite(async () => {
         try {
+          assertGeminiFallbacks(latestDraftRef.current.taskConfig, newModels)
           const cleanedModels = newModels.map(serializeModel)
           await saveSection('models', cleanedModels)
           if (
@@ -251,6 +255,7 @@ export function useModelAutoSave(options: UseModelAutoSaveOptions): UseModelAuto
 
       return enqueueWrite(async () => {
         try {
+          assertGeminiFallbacks(newTaskConfig, latestDraftRef.current.models)
           await saveSection('model_task_config', newTaskConfig)
           if (
             generation === generationsRef.current.taskConfig &&

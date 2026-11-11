@@ -173,6 +173,7 @@ function ModelConfigPageContent() {
     // 任务配置问题
     configWarnings,
     invalidModelRefs,
+    invalidGeminiFallbacks,
     emptyTasks,
     handleRemoveInvalidRefs,
     // 模型编辑
@@ -648,6 +649,18 @@ function ModelConfigPageContent() {
           </Alert>
         )}
         
+        {invalidGeminiFallbacks.length > 0 && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Gemini 拦截回落尚未保存</strong>
+              {invalidGeminiFallbacks.map(({ taskName, message }) => (
+                <div key={taskName} className="mt-1 text-sm">{taskShortName(taskName)}：{message}</div>
+              ))}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* 空任务警告 */}
         {emptyTasks.length > 0 && (
           <Alert variant="default" className="border-yellow-500/50 bg-yellow-500/10">

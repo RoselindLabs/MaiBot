@@ -185,6 +185,79 @@ function lastToast() {
   return toastMock.mock.calls.at(-1)?.[0]
 }
 
+describe('Gemini 回落引用维护', () => {
+  it('模型改名原子更新目标，保留其它任务', async () => {
+    stubConfig({ model_task_config: {
+      replyer: { model_list: ['chat'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'chat' },
+      utils: { model_list: [], gemini_fallback_mode: 'disabled', gemini_fallback_model: '' },
+    } })
+    const { result } = await renderLoadedHook()
+    act(() => result.current.openEditDialog(result.current.models[0], 0))
+    act(() => result.current.setEditingModel({ ...result.current.editingModel!, name: 'renamed' }))
+    await act(async () => { await result.current.handleSaveEdit() })
+    expect(result.current.taskConfig?.replyer).toEqual({ model_list: ['renamed'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'renamed' })
+    expect(result.current.taskConfig?.utils).toEqual({ model_list: [], gemini_fallback_mode: 'disabled', gemini_fallback_model: '' })
+    expect(updateModelConfigMock.mock.calls[0][0].model_task_config).toEqual(result.current.taskConfig)
+  })
+
+  it('删除模型、批量删除及删除提供商不能写出失效目标', async () => {
+    stubConfig({ model_task_config: { replyer: { model_list: ['chat'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'chat' } } })
+    const { result } = await renderLoadedHook()
+    act(() => result.current.openDeleteDialog(0))
+    act(() => result.current.handleConfirmDelete())
+    expect(result.current.models).toHaveLength(1)
+    expect(lastToast().description).toContain('回落目标「chat」已失效')
+    act(() => result.current.toggleModelSelection(0))
+    act(() => result.current.handleConfirmBatchDelete())
+    expect(result.current.models).toHaveLength(1)
+    act(() => result.current.openProviderDeleteDialog(0))
+    await act(async () => { await result.current.handleConfirmProviderDelete() })
+    await act(async () => { await result.current.handleConfirmDeleteProviderImpact() })
+    expect(updateModelConfigMock).not.toHaveBeenCalled()
+    expect(result.current.apiProviders.map((item) => item.name)).toContain('main')
+    expect(result.current.taskConfig?.replyer.gemini_fallback_model).toBe('chat')
+    expect(lastToast().title).toBe('删除失败')
+  })
+
+  it('已删除或非生成目标及空任务都诊断，旧空任务语义不变', async () => {
+    stubConfig({ models: [model('embed', 'main', { model_type: 'embedding' })], model_task_config: {
+      replyer: { model_list: ['gone'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'gone' },
+      planner: { model_list: ['embed'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'embed' },
+      memory: { model_list: [], gemini_fallback_mode: 'custom', gemini_fallback_model: 'gone' },
+      learner: { model_list: [] },
+    } })
+    const { result } = await renderLoadedHook()
+    expect(result.current.invalidGeminiFallbacks.map((issue) => issue.taskName)).toEqual(['replyer', 'planner', 'memory'])
+    expect(result.current.taskConfig?.learner).toEqual({ model_list: [] })
+    expect(result.current.emptyTasks).not.toContain('memory')
+  })
+
+  it('自定义目标从生成模型改为嵌入模型时拒绝保存且不产生自动保存副作用', async () => {
+    stubConfig({ model_task_config: { replyer: {
+      model_list: ['chat'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'chat',
+    } } })
+    const { result, unmount } = await renderLoadedHook()
+    vi.useFakeTimers()
+    const originalModels = structuredClone(result.current.models)
+    const originalTasks = structuredClone(result.current.taskConfig)
+    act(() => result.current.openEditDialog(result.current.models[0], 0))
+    act(() => result.current.setEditingModel({ ...result.current.editingModel!, model_type: 'embedding' }))
+    await act(async () => { await result.current.handleSaveEdit() })
+    expect(lastToast()).toEqual(expect.objectContaining({
+      title: '保存失败', description: expect.stringContaining('回落目标「chat」已失效'),
+    }))
+    expect(result.current.editDialogOpen).toBe(true)
+    expect(result.current.models).toEqual(originalModels)
+    expect(result.current.taskConfig).toEqual(originalTasks)
+    expect(result.current.hasUnsavedChanges).toBe(false)
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    unmount()
+    await act(async () => { await Promise.resolve() })
+    expect(updateModelConfigMock).not.toHaveBeenCalled()
+    expect(updateModelConfigSectionMock).not.toHaveBeenCalled()
+  })
+})
+
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   stubConfig()

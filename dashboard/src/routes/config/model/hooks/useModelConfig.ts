@@ -39,6 +39,7 @@ import type { ConfigSchema } from '@/types/config-schema'
 
 import type { ModelInfo, ModelPricePeriod, ModelTaskConfig, ProviderConfig, TaskConfig } from '../types'
 import { serializeModel } from '../serializeModel'
+import { assertGeminiFallbacks, geminiFallbackIssues } from '../geminiFallback'
 import type { APIProvider, DeleteConfirmState } from '../../modelProvider/types'
 import { cleanProviderData } from '../../modelProvider/utils'
 import { PROVIDER_TEMPLATES } from '../../providerTemplates'
@@ -603,6 +604,7 @@ export function useModelConfig() {
       nextTaskConfig: ModelTaskConfig | null,
       nextApiProviders: APIProvider[]
     ): Promise<ConfigDraftPersistResult> => {
+      assertGeminiFallbacks(nextTaskConfig, nextModels)
       const modelCheckpoint = prepareSaveBarrier(nextModels, nextTaskConfig)
       const providerCheckpoint = prepareProviderSaveBarrier(nextApiProviders)
 
@@ -1153,7 +1155,11 @@ export function useModelConfig() {
 
       newTaskConfig = {}
       for (const [key, task] of Object.entries(taskConfig)) {
-        newTaskConfig[key] = key === 'web_search' ? task : { ...task, model_list: updateModelList(task?.model_list || []) }
+        newTaskConfig[key] = key === 'web_search' ? task : {
+          ...task,
+          model_list: updateModelList(task?.model_list || []),
+          ...(task.gemini_fallback_model === oldModelName ? { gemini_fallback_model: modelToSave.name } : {}),
+        }
       }
     }
 
@@ -1226,6 +1232,11 @@ export function useModelConfig() {
   const handleConfirmDelete = useCallback(() => {
     if (deletingIndex !== null) {
       const newModels = models.filter((_, i) => i !== deletingIndex)
+      const fallbackIssues = geminiFallbackIssues(taskConfig, newModels)
+      if (fallbackIssues.length) {
+        toast({ title: '删除失败', description: fallbackIssues.map(({ taskName, message }) => `${taskName}：${message}`).join('\n'), variant: 'destructive' })
+        return
+      }
       setModels(newModels)
       setModelNames(newModels.map((m) => m.name))
       // 重新检查任务配置问题
@@ -1467,6 +1478,11 @@ export function useModelConfig() {
   const handleConfirmBatchDelete = useCallback(() => {
     const deletedCount = selectedModels.size
     const newModels = models.filter((_, index) => !selectedModels.has(index))
+    const fallbackIssues = geminiFallbackIssues(taskConfig, newModels)
+    if (fallbackIssues.length) {
+      toast({ title: '删除失败', description: fallbackIssues.map(({ taskName, message }) => `${taskName}：${message}`).join('\n'), variant: 'destructive' })
+      return
+    }
     setModels(newModels)
     setModelNames(newModels.map((m) => m.name))
     // 重新检查任务配置问题
@@ -1496,8 +1512,13 @@ export function useModelConfig() {
       const newTaskConfig = {
         ...taskConfig,
         [taskName]: {
+          ...(!taskConfig[taskName] || field.startsWith('gemini_fallback_') ? {
+            gemini_fallback_mode: 'legacy_grok' as const,
+            gemini_fallback_model: '',
+          } : {}),
           ...taskConfig[taskName],
           [field]: value,
+          ...(field === 'gemini_fallback_mode' && value !== 'custom' ? { gemini_fallback_model: '' } : {}),
         },
       }
       setTaskConfig(newTaskConfig)
@@ -1575,6 +1596,7 @@ export function useModelConfig() {
     // 任务配置问题
     configWarnings,
     invalidModelRefs,
+    invalidGeminiFallbacks: geminiFallbackIssues(taskConfig, models),
     emptyTasks,
     handleRemoveInvalidRefs,
     // 模型编辑

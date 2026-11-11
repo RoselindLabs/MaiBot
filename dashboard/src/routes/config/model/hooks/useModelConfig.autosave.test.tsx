@@ -93,6 +93,65 @@ afterEach(() => {
 })
 
 describe('useModelConfig provider 自动保存', () => {
+  it('Gemini 自定义目标校验、防抖往返及关闭时显式清空', async () => {
+    updateModelConfigSectionMock.mockResolvedValue({})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { result, unmount } = renderHook(() => useModelConfig())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    vi.useFakeTimers()
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_mode', 'custom'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateModelConfigSectionMock).not.toHaveBeenCalled()
+    expect(result.current.hasUnsavedChanges).toBe(true)
+    expect(result.current.invalidGeminiFallbacks[0].message).toContain('请选择')
+
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_model', 'model'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    const saved = updateModelConfigSectionMock.mock.calls[0][1]
+    expect(saved).toEqual({ replyer: { model_list: ['model'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'model' } })
+    expect(result.current.hasUnsavedChanges).toBe(false)
+    getModelConfigCachedMock.mockResolvedValue({ ...modelConfig(), model_task_config: saved })
+    await act(async () => { await result.current.loadConfig() })
+    expect(result.current.taskConfig?.replyer.gemini_fallback_model).toBe('model')
+
+    act(() => result.current.updateTaskConfig('replyer', 'model_list', []))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateModelConfigSectionMock).toHaveBeenCalledTimes(1)
+    expect(result.current.invalidGeminiFallbacks[0].message).toContain('已失效')
+    await act(async () => { await result.current.saveConfig() })
+    expect(updateModelConfigMock).not.toHaveBeenCalled()
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_mode', 'disabled'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateModelConfigSectionMock).toHaveBeenLastCalledWith('model_task_config', {
+      replyer: { model_list: [], gemini_fallback_mode: 'disabled', gemini_fallback_model: '' },
+    })
+    expect(result.current.hasUnsavedChanges).toBe(false)
+    unmount()
+  })
+
+  it('Gemini 设置沿串行队列保存，新修订不会被旧请求覆盖', async () => {
+    const first = createDeferred<Record<string, unknown>>()
+    updateModelConfigSectionMock.mockReturnValueOnce(first.promise).mockResolvedValue({})
+    const { result, unmount } = renderHook(() => useModelConfig())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    vi.useFakeTimers()
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_mode', 'disabled'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_mode', 'custom'))
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_model', 'model'))
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateModelConfigSectionMock).toHaveBeenCalledTimes(1)
+    await act(async () => { first.resolve({}); await first.promise })
+    expect(updateModelConfigSectionMock).toHaveBeenCalledTimes(2)
+    expect(result.current.taskConfig?.replyer.gemini_fallback_mode).toBe('custom')
+    act(() => result.current.updateTaskConfig('replyer', 'gemini_fallback_mode', 'legacy_grok'))
+    unmount() // 未到防抖时间也必须写出明确的空字符串。
+    await act(async () => { await Promise.resolve() })
+    expect(updateModelConfigSectionMock).toHaveBeenLastCalledWith('model_task_config', {
+      replyer: { model_list: ['model'], gemini_fallback_mode: 'legacy_grok', gemini_fallback_model: '' },
+    })
+  })
+
   it('公共模型保存后使用返回的版本继续编辑', async () => {
     getModelConfigCachedMock.mockResolvedValue({ ...modelConfig(), _shared_catalog: { revision: 'revision-1' } })
     updateModelConfigSectionMock.mockResolvedValueOnce({ catalog_revision: 'revision-2' })

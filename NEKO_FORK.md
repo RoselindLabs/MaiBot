@@ -8,6 +8,33 @@
 
 ## 1.4.3 当前维护状态（2026-11-10，已上线）
 
+### 11月11日N08配置扩展（源码候选，未部署）
+
+沿既有`model_task_config.<task>`新增`gemini_fallback_mode`和`gemini_fallback_model`，
+模型任务配置按现有模板生成/迁移规则从1.17.25最小升至1.17.26；无新UpgradeHook。
+旧配置缺省`legacy_grok`和空目标，保持原精确API标识及任务顺序。
+`custom`只接受当前任务`model_list`内、以`ModelInfo.name`引用的有效`llm`模型；空、任务外、
+不存在或非生成模型明确拒绝。`disabled`停止定向备用。非custom历史残留读入可兼容、运行忽略，
+保存/默认模板/版本迁移写出时清空；恢复默认不保留custom作用。
+当前配置校验、共享目录失效引用及跨Bot删除/类型改变保护共用同一目标检查，
+保存继续走原事务锁、目录revision与热重载，任务继用仍整体继用TaskConfig。
+N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式块、原有限重试或目标上下文重建边界。
+前端沿现有功能分配/任务编辑，字段合同同后端；实例模型、人设、供应商与生产保持原样。
+来源在原32项上增加5个配置/保存Python源，当前36源＋锁共37项；精确集合与hash见`neko-patches.json`。
+下方11月10日已上线SHA、32项及配置版本是历史发布状态，不是本候选部署证明。
+Windows Python3.12锁定依赖同步通过；Gemini配置/行为与来源策略定向96项通过，
+原`neko_check.py`完整禁网络契约667项通过（18条既有依赖警告），固定TTS fixture保持。
+尚无本候选Linux同SHA CI或生产验收，不进行真实模型/QQ调用。
+Dashboard本地Bun1.2.1冻结安装、tsc/Vite及4文件153项定向测试通过；1440/390px浏览器
+合成回归覆盖选择、自动保存、刷新、失效提示和退出custom。构建后仅补两份测试fixture/回归，
+运行源码及构建输入保持，沿用这份265文件/8099623字节固定制品，不为测试改动重复构建。
+制品清单SHA256为`d3e539ee4c28556c1a2a97cec6c4be02af2fd6a5a81b928f8e79758d744d3e5b`；
+后续发布须保留并逐文件核验同份制品。完整提交与Dashboard源码树/制品关联留在交付证据。
+维护分支唯一活动`neko-ci.yml`执行双平台Python合同及源码包，不包含Dashboard CI；
+前端以上述真实本地证据为准，未启用留档的上游前端工作流。
+
+### 11月10日已上线快照
+
 本节优先于下方历史1.3.19准备与发布记录。SDK固定2.22.1，Dashboard固定1.10.3，
 主库48、主配置8.16.18、模型任务配置仍1.17.25；公共模型目录版本3.0.0。
 已验业务源码`68dfde8d003832f7c4c60905f27f6937a67d3051`已推送并同SHA上线。
@@ -83,7 +110,7 @@
 | --- | --- |
 | 上游与依赖 | MaiBot1.4.3／SDK2.22.1／Dashboard1.10.3，固定uv.lock，DB48 |
 | 维护源码 | `neko/main`；用`git rev-parse HEAD`取得实际修订；已验业务SHA见顶部，文档HEAD与实例部署分开记录 |
-| 来源登记 | `neko-patches.json`纳管31源＋锁32项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
+| 来源登记 | `neko-patches.json`纳管36源＋锁37项；Dashboard制品独立登记，源码树一致时可复用已验构建 |
 | 配套适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，保官方1.1.13及原插件ID，精确修订以Git SHA区分 |
 | 发布状态 | 本仓只声明源码行为；实例实际部署SHA、待发布差异与备份以私有运维登记为准，不用本文旧发布快照推断线上状态 |
 
@@ -112,8 +139,8 @@
 `pytests/neko/test_source_policy.py`从本表读取ID/slug，解析Python真实注释及模块/类/函数文档字符串，
 禁止未知ID、slug错配及缺边界说明，已纳管Python源必须有标记；普通字符串/提示词不算标记。
 同文件允许多个ID；`uv.lock`仅走原字节hash校验，Dashboard沿独立制品合同。
-原门禁继续验证31源＋锁32项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
-本次文档核对：31源及锁的hash均匹配，逐ID核对维护标记、实现及测试入口；hash只能检测漂移，不能证明行为。
+原门禁继续验证36源＋锁37项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
+逐ID核对维护标记、实现及测试入口；hash只能检测漂移，不能证明行为。
 当前双平台门禁见顶部；本次纯文档核对不重跑全量行为测试，不把旧605项标记维护验收当当前结果。
 
 | ID | 行为与合并入口 | 必须保留的验证 | 可撤销条件 |
@@ -125,7 +152,7 @@
 | N05 trusted-tools | 显式opt-in可信工具身份：`src/plugin_runtime/component_query.py` | `pytests/neko/test_tool_context.py`、`test_plugin_bridge.py` | 上游提供同等身份边界且Files消费者迁移完成 |
 | N06 update-source | uv来源错误格式兼容：`src/common/self_update.py` | `pytests/neko/test_release_1319.py::test_update_index_attribution_accepts_reviewed_uv_error_formats`及`pytests/startup_test/test_self_update_dependency_sources.py` | 上游支持新旧错误格式且仍精确绑定索引 |
 | N07 gemini-diagnostics | 有界失败诊断与快照：`src/llm_models/{gemini_failure_diagnostics,request_snapshot}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游保脱敏、有界记录和原失败终态 |
-| N08 gemini-fallback | 首候选解析、结构化拦截、精确Grok备用：`src/llm_models/{exceptions,utils_model,model_client/gemini_client}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游同时满足候选解析、未输出/未锁模型、候选交集与有限重试 |
+| N08 gemini-fallback | 首候选解析、结构化拦截、任务内可配置备用：`src/llm_models/{exceptions,utils_model,model_client/gemini_client}.py`；`src/config/{config,model_configs,shared_models}.py`、`src/host/shared_models.py`、`src/webui/routers/config.py` | `pytests/neko/test_gemini_failure_diagnostics.py`，含真实保存/迁移、非法引用及跨Bot保护 | 上游同时满足候选解析、未输出/未锁模型、候选交集、三态配置与有限重试 |
 | N09 rpc-media | 双端32MiB、协商媒体表/同图去重：`src/plugin_runtime/{transport/base,protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
 | N10 gif-frames | 浮点MSE已由上游吸收；保留单帧/非正上限：`src/common/utils/utils_image.py::ImageUtils.gif_2_static_image` | `pytests/neko/test_gif_static_image.py` | 上游覆盖uint8溢出、max_frames及阈值边界 |
 | N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离、无执行快照时有限只读摘要：`src/maisaka/focus/group_runtime.py`、`src/maisaka/chat_loop_service.py`、`src/maisaka/context/compaction.py` | `pytests/maisaka/test_focus_group_runtime.py`、`pytests/neko/test_focus_recovery.py` | 上游保新输入唤醒、有限摘要原子提交、失败保留输入、无自动重试循环及unknown不重放 |
@@ -141,6 +168,9 @@ N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planne
 
 - **N11迁移工具**：`scripts/neko_prepare_143.py::prepare_focus_groups`，验证在`pytests/neko/test_release_143.py`；仅处理旧配置副本，不是运行时ready桥，也不修改官方`src/maisaka/focus/manager.py`。
 - **N16**：`observe_planner`/`report_progress`、`MaisakaReasoningEngine._run_planner_request`与Focus `_run_turn`接入，`FocusGroupRuntime._set_stage`/`_publish_monitor_stage`接官方组级监控；UI沿上表观察页，不沿旧独立状态页。
+- **N08前端**：`dashboard/src/routes/config/model/geminiFallback.ts`、任务编辑`components/TaskAssignmentBoard.tsx`、
+  `hooks/useModelConfig.ts`/`useModelAutoSave.ts`及`dashboard/src/lib/pack-api.ts`；保序列化保存、
+  非法草稿阻止提交、模型重命名/删除引用保护和旧任务完整参数。浏览器合成夹具为`dashboard/tests/browser/gemini-fallback.*`。
 - **N11**：`MaisakaChatLoopService.chat_loop_step`的历史归属记录/只读准备分支；
   `FocusCompactionTemplate`、`FocusRecoveryError`、`_build_compaction_request`、`build_context_summary`；
   `FocusGroupRuntime.__init__`、`state`、`is_member_valid`、`_set_stage`、`run`、`_run_turn`、
@@ -274,13 +304,14 @@ N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planne
     解析与首候选相等关系；不记正文/签名/参数/文本hash、不增加请求。诊断失败保留原结果。
     两个同文候选的双份结果已用真实SDK离线复现并修正；现场成功快照没有原始候选结构，
     尚不能确认这就是用户所报重复的根因。现已上线且用户反馈正常，本轮交付结束；若以后复现才查对应自然诊断，不主动开启忽略/重放收费请求补证明。
-15. **明确内容拦截止损及定向 Grok 备用**（原止损9441aa20a，2026-11-05扩展）：仅Gemini结构化
+15. **明确内容拦截止损及任务内定向备用**（原止损9441aa20a，2026-11-05/11扩展）：仅Gemini结构化
     `prompt_feedback.block_reason == "PROHIBITED_CONTENT"`触发独立ContentBlockedError；原模型不重试或惩罚可用性。
-    未锁定单一模型且尚未交出流式块时，按任务列表顺序尝试未失败的候选，实际API `model_identifier`
-    必须精确为 `grok-4.5`、`grok-4.6` 或 `grok-4.7`，不按显示名或子串猜测，不新增任务候选。
-    进入此路径后只走上述交集，备用失败保原有限重试，不再回其它模型；无可用候选则结束。
+    未锁定单一模型且尚未交出流式块时，legacy_grok按任务列表顺序尝试未失败的候选，实际API
+    `model_identifier`必须精确为`grok-4.5`、`grok-4.6`或`grok-4.7`，不按显示名或子串猜测。
+    custom仅使用任务内指定有效生成模型名称，disabled不定向回落；非custom目标残留运行忽略、保存清空。
+    进入此路径后只走所选交集，不新增候选；备用失败保原有限重试，不再回其它模型，无可用候选则结束。
     已交出任何流式块（包括元数据）后再拦截则直接结束，避免自定义解析器副作用或两模型输出混合。
-    保原上下文工厂按目标客户端重建、失败快照/终态及有界元数据，不删图替词；不新增前端/配置字段。
+    保原上下文工厂按目标客户端重建、失败快照/终态及有界元数据，不删图替词；配置字段与保存合同见顶部。
     其它空响应／网络／超时／取消保持原行为。实际部署以实例来源登记为准。
 
 [neko-patches.json](neko-patches.json) 是重新构造的公开差异清单，只有上游标识、包版本及源码哈希，

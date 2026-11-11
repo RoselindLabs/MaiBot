@@ -586,8 +586,11 @@ async def test_content_fallback_does_not_guess_model_identifiers(blocked_request
 
 
 @pytest.mark.asyncio
-async def test_content_fallback_respects_explicit_model(blocked_request_harness):
+@pytest.mark.parametrize("mode", ["legacy_grok", "custom", "disabled"])
+async def test_content_fallback_respects_explicit_model(blocked_request_harness, mode):
     h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "backup"
     h.models["backup"].model_identifier = "grok-4.7"
     h.transport.generate_content.return_value = blocked_response()
     with pytest.raises(ContentBlockedError):
@@ -599,8 +602,11 @@ async def test_content_fallback_respects_explicit_model(blocked_request_harness)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["blocked", "empty", "cancel"])
-async def test_content_fallback_never_returns_to_other_models(blocked_request_harness, failure):
+@pytest.mark.parametrize("mode", ["legacy_grok", "custom"])
+async def test_content_fallback_never_returns_to_other_models(blocked_request_harness, failure, mode):
     h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "backup"
     h.models["backup"].model_identifier = "grok-4.7"
     h.models["other"] = h.models["primary"].model_copy(update={"name": "other"})
     h.task.model_list.insert(1, "other")
@@ -622,8 +628,11 @@ async def test_content_fallback_never_returns_to_other_models(blocked_request_ha
 
 
 @pytest.mark.asyncio
-async def test_late_stream_block_cannot_mix_model_outputs(blocked_request_harness):
+@pytest.mark.parametrize("mode", ["legacy_grok", "custom", "disabled"])
+async def test_late_stream_block_cannot_mix_model_outputs(blocked_request_harness, mode):
     h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "backup"
     h.models["backup"].model_identifier = "grok-4.7"
     received = []
 
@@ -671,11 +680,14 @@ async def test_previously_failed_grok_is_not_replayed_after_block(blocked_reques
 
 
 @pytest.mark.asyncio
-async def test_grok_switch_rebuilds_request_for_target_client(blocked_request_harness):
+@pytest.mark.parametrize("mode", ["legacy_grok", "custom"])
+async def test_grok_switch_rebuilds_request_for_target_client(blocked_request_harness, mode):
     from src.llm_models.model_client.base_client import APIResponse
 
     h = blocked_request_harness
-    h.models["backup"].model_identifier = "grok-4.7"
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "backup"
+    h.models["backup"].model_identifier = "grok-4.7" if mode == "legacy_grok" else "non-grok-generation"
     target = Mock()
     response = APIResponse()
     target.get_response = AsyncMock(return_value=response)
@@ -693,3 +705,249 @@ async def test_grok_switch_rebuilds_request_for_target_client(blocked_request_ha
     assert factories == [(primary, "primary"), (target, "backup")]
     target.get_response.assert_awaited_once()
     h.error.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_custom_fallback_selects_non_grok_by_name_and_rebuilds_context(blocked_request_harness, stream):
+    h = blocked_request_harness
+    h.task.gemini_fallback_mode = "custom"
+    h.task.gemini_fallback_model = "backup"
+    h.models["grok"] = h.models["backup"].model_copy(update={"name": "grok", "model_identifier": "grok-4.7"})
+    h.task.model_list.insert(1, "grok")
+    h.transport.generate_content.side_effect = [blocked_response(), success_response()]
+
+    async def chunks(response):
+        yield response
+
+    h.transport.generate_content_stream.side_effect = (
+        [chunks(blocked_response()), chunks(success_response())] if stream else None
+    )
+    prepared = []
+
+    def factory(client, model):
+        prepared.append(model.name)
+        return h.items
+
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=factory, force_stream_mode=stream)
+    assert result.model_info.name == "backup"
+    assert prepared == ["primary", "backup"]
+    assert h.orchestrator.model_usage["grok"] == (0, 0, 0)
+    h.retry.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode,target", [("disabled", "backup"), ("legacy_grok", "backup"), ("custom", "unlisted")])
+async def test_disabled_stale_or_outside_target_never_implicitly_selects_custom(blocked_request_harness, mode, target):
+    h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = target
+    h.models["unlisted"] = h.models["backup"].model_copy(update={"name": "unlisted"})
+    if mode == "disabled":
+        h.models["backup"].model_identifier = "grok-4.7"
+    h.transport.generate_content.return_value = blocked_response()
+    with pytest.raises(ContentBlockedError):
+        await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert h.registry.await_count == 1
+    h.retry.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["custom", "disabled"])
+async def test_fallback_setting_does_not_change_normal_failure_candidates(blocked_request_harness, mode):
+    h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "primary"
+    h.transport.generate_content.side_effect = [types.GenerateContentResponse()] * 4 + [success_response()]
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert result.model_info.name == "backup"
+    assert h.transport.generate_content.await_count == 5
+    assert h.retry.call_count == 3
+
+
+@pytest.fixture
+def fallback_config_workspace(tmp_path, monkeypatch):
+    import tomlkit
+
+    from src.config.shared_models import extract_bot_model_settings, extract_catalog
+    from src.host.registry import Registry
+    from src.webui.routers import config as routes
+
+    data = {
+        "inner": {"version": "1.17.26"},
+        "api_providers": [{"name": "synthetic", "base_url": "https://example.invalid/v1", "api_key": "synthetic"}],
+        "models": [
+            {"name": name, "model_identifier": identifier, "api_provider": "synthetic", "model_type": "llm"}
+            for name, identifier in [("primary", "gemini-synthetic"), ("backup", "non-grok-generation")]
+        ],
+        "model_task_config": {"planner": {"model_list": ["primary", "backup"], "hard_timeout": 83}},
+    }
+    registry = Registry(tmp_path)
+    registry.create()
+    paths = []
+    for name in ["first", "second"]:
+        directory = tmp_path / "bots" / name
+        (directory / "config").mkdir(parents=True)
+        registry.add_bot(name, directory, owned=True, initialization="initialized")
+        path = directory / "config" / "model_config.toml"
+        path.write_text(tomlkit.dumps(extract_bot_model_settings(data)), encoding="utf-8")
+        paths.append(path)
+    catalog = tmp_path / "host" / "model_catalog.toml"
+    catalog.write_text(tomlkit.dumps(extract_catalog(data)), encoding="utf-8")
+    monkeypatch.setenv("MAIBOT_SHARED_MODEL_CATALOG", str(catalog))
+    monkeypatch.setattr(routes, "CONFIG_DIR", paths[0].parent)
+    reload = AsyncMock()
+    monkeypatch.setattr(routes, "_reload_model_config_after_save", reload)
+    return SimpleNamespace(data=data, paths=paths, catalog=catalog, routes=routes, reload=reload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reset_mode", ["legacy_grok", "disabled", None])
+async def test_real_config_save_roundtrip_and_default_reset_clear_custom(fallback_config_workspace, reset_mode):
+    import tomllib
+
+    from src.config.config import MODEL_CONFIG_VERSION, ModelConfig, load_config_from_file
+
+    h = fallback_config_workspace
+    original_catalog = h.catalog.read_bytes()
+    task = h.data["model_task_config"]["planner"]
+    task.update(gemini_fallback_mode="custom", gemini_fallback_model="backup")
+    assert (await h.routes.update_model_config(h.data))["success"]
+    loaded, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
+    assert not updated
+    assert loaded.model_task_config.planner.gemini_fallback_model == "backup"
+    assert loaded.model_task_config.planner.hard_timeout == 83
+    saved = h.routes.get_model_config()["config"]
+    assert saved["model_task_config"]["planner"]["gemini_fallback_mode"] == "custom"
+    assert "models" not in tomllib.loads(h.paths[0].read_text(encoding="utf-8"))
+    if reset_mode is None:
+        task.pop("gemini_fallback_mode")
+        task.pop("gemini_fallback_model")
+    else:
+        task["gemini_fallback_mode"] = reset_mode  # Deliberately retain stale custom target in the submitted form.
+    await h.routes.update_model_config(h.data)
+    persisted = tomllib.loads(h.paths[0].read_text(encoding="utf-8"))["model_task_config"]["planner"]
+    assert persisted["gemini_fallback_mode"] == (reset_mode or "legacy_grok")
+    assert persisted["gemini_fallback_model"] == ""
+    loaded, _ = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
+    assert loaded.model_task_config.planner.gemini_fallback_model == ""
+    assert h.catalog.read_bytes() == original_catalog
+    assert h.reload.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["empty", "outside", "missing", "embedding", "provider", "mode"])
+async def test_real_config_save_rejects_invalid_custom_reference_atomically(fallback_config_workspace, case):
+    h = fallback_config_workspace
+    task = h.data["model_task_config"]["planner"]
+    task.update(gemini_fallback_mode="custom", gemini_fallback_model="backup")
+    if case == "empty":
+        task["gemini_fallback_model"] = ""
+    elif case == "outside":
+        task["model_list"] = ["primary"]
+    elif case == "missing":
+        h.data["models"].pop()
+    elif case == "embedding":
+        h.data["models"][1]["model_type"] = "embedding"
+    elif case == "provider":
+        h.data["models"][1]["api_provider"] = "missing"
+    else:
+        task["gemini_fallback_mode"] = "unknown"
+    before = [path.read_bytes() for path in [h.catalog, *h.paths]]
+    with pytest.raises(h.routes.HTTPException) as exc:
+        await h.routes.update_model_config(h.data)
+    assert exc.value.status_code == 400
+    assert "备用模型" in exc.value.detail or case == "mode"
+    assert [path.read_bytes() for path in [h.catalog, *h.paths]] == before
+    h.reload.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["delete", "embedding"])
+async def test_shared_catalog_change_protects_other_bots_custom_reference(fallback_config_workspace, change):
+    import tomlkit
+
+    from src.config.shared_models import extract_bot_model_settings, missing_references
+
+    h = fallback_config_workspace
+    other = deepcopy(h.data)
+    other["model_task_config"]["planner"].update(gemini_fallback_mode="custom", gemini_fallback_model="backup")
+    h.paths[1].write_text(tomlkit.dumps(extract_bot_model_settings(other)), encoding="utf-8")
+    h.data["model_task_config"]["planner"]["model_list"] = ["primary"]
+    if change == "delete":
+        h.data["models"].pop()
+    else:
+        h.data["models"][1]["model_type"] = "embedding"
+    before = [path.read_bytes() for path in [h.catalog, *h.paths]]
+    with pytest.raises(h.routes.HTTPException) as exc:
+        await h.routes.update_model_config(h.data)
+    assert exc.value.status_code == 400
+    assert "second" in exc.value.detail and "Gemini备用模型" in exc.value.detail
+    assert [path.read_bytes() for path in [h.catalog, *h.paths]] == before
+    other["models"] = h.data["models"]
+    assert any("Gemini备用模型" in error for error in missing_references(other))
+
+
+def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_path, monkeypatch):
+    import tomlkit
+    import tomllib
+
+    from src.config.config import MODEL_CONFIG_VERSION, ModelConfig, generate_new_config_file, load_config_from_file
+    from src.config.model_configs import TaskConfig
+
+    monkeypatch.delenv("MAIBOT_SHARED_MODEL_CATALOG", raising=False)
+    path = tmp_path / "model_config.toml"
+    generate_new_config_file(ModelConfig, path, MODEL_CONFIG_VERSION, True)
+    text = path.read_text(encoding="utf-8")
+    assert "gemini_fallback_mode" in text and "Gemini明确内容拦截后的备用策略" in text
+    data = tomllib.loads(text)
+    for name, task in data["model_task_config"].items():
+        if name != "web_search":
+            assert task.pop("gemini_fallback_mode") == "legacy_grok"
+            assert task.pop("gemini_fallback_model") == ""
+    data["inner"]["version"] = "1.17.25"
+    data["model_task_config"]["planner"]["hard_timeout"] = 83
+    path.write_text(tomlkit.dumps(data), encoding="utf-8")
+    loaded, updated = load_config_from_file(ModelConfig, path, MODEL_CONFIG_VERSION, True)
+    assert updated
+    assert loaded.model_task_config.planner.gemini_fallback_mode == "legacy_grok"
+    migrated = tomllib.loads(path.read_text(encoding="utf-8"))
+    for name, task in migrated["model_task_config"].items():
+        if name != "web_search":
+            assert task.pop("gemini_fallback_mode") == "legacy_grok"
+            assert task.pop("gemini_fallback_model") == ""
+    migrated["inner"]["version"] = "1.17.25"
+    assert migrated == data
+    schema = TaskConfig.model_json_schema()["properties"]
+    assert schema["gemini_fallback_mode"]["enum"] == ["legacy_grok", "custom", "disabled"]
+    assert schema["gemini_fallback_model"]["default"] == ""
+
+
+def test_empty_task_inherits_whole_fallback_config_and_refreshes(monkeypatch):
+    from src.config.model_configs import ModelTaskConfig, TaskConfig
+    from src.llm_models import utils_model as llm
+
+    tasks = ModelTaskConfig(
+        utils=TaskConfig(model_list=["synthetic"], gemini_fallback_mode="custom", gemini_fallback_model="synthetic")
+    )
+    monkeypatch.setattr(llm.config_manager, "get_model_config", lambda: SimpleNamespace(model_task_config=tasks))
+    orchestrator = llm.LLMOrchestrator("fast_model")
+    assert orchestrator.model_for_task is tasks.utils
+    tasks.utils = TaskConfig(model_list=["synthetic"], gemini_fallback_mode="disabled")
+    assert orchestrator._refresh_task_config() is tasks.utils
+    assert orchestrator.model_for_task.gemini_fallback_mode == "disabled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["legacy_grok", "custom", "disabled"])
+async def test_rate_limit_keeps_original_retry_instead_of_content_fallback(blocked_request_harness, mode):
+    from src.llm_models.exceptions import RespNotOkException
+
+    h = blocked_request_harness
+    h.task.gemini_fallback_mode = mode
+    h.task.gemini_fallback_model = "backup"
+    h.transport.generate_content.side_effect = [RespNotOkException(429), success_response()]
+    result = await h.orchestrator._execute_request(h.request_type, context_factory=lambda client: h.items)
+    assert result.model_info.name == "primary"
+    assert h.registry.await_count == 1
+    h.retry.assert_called_once()
