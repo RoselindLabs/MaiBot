@@ -18,15 +18,26 @@
 | 上游基线 | MaiBot1.4.3／`e5391507531706a8bfce011d55ed94628039f2de` |
 | 最近已部署业务修订 | `121729aa1ad4c456e6cde9118d5c808b6b3e66d3`，11月11日N08可配置回落及匹配Dashboard共同上线；文档HEAD前移不构成新业务发布 |
 | 依赖与数据 | SDK2.22.1／Dashboard1.10.3／主库48；主配置8.16.18、模型任务配置1.17.26、公共模型目录3.0.0，固定`uv.lock` |
-| 来源登记 | `neko-patches.json`纳管36个Python源＋锁共37项；只保存公开源hash，不含实例数据 |
+| 来源登记 | 已部署修订为36个Python源＋锁共37项；N18源码候选增加3源，当前`neko-patches.json`纳管39源＋锁40项，仅公开源hash |
 | Dashboard | 同业务修订构建；265资源，源码树与制品关联独立于后端CI记录，不能只更新宿主而服务旧dist |
 | 配套QQ适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，当前配套已验1.3.0／`dad01a7`；保原插件ID，候选不冒充部署 |
 | Telegram | Host N17候选已撤回且未上线；命令后缀修复转[独立适配器fork](https://github.com/RoselindLabs/maibot-telegram-adapter)，不重新加入宿主补丁集合 |
 
-**维护导航**：[发布/迁移](#发布与迁移边界) · [验证/CI](#本地验证与-ci) · [上游同步](#分支与上游同步) · [N01–N16台账](#升级补丁台账稳定id) · [Focus迁移](#已确认行为选择及迁移边界) · [Host认证](#host-认证与运维接口合同) · [文件能力](#文件能力的选择)。
+**维护导航**：[发布/迁移](#发布与迁移边界) · [验证/CI](#本地验证与-ci) · [上游同步](#分支与上游同步) · [补丁台账](#升级补丁台账稳定id) · [Focus迁移](#已确认行为选择及迁移边界) · [Host认证](#host-认证与运维接口合同) · [文件能力](#文件能力的选择)。
 
 本文件维护fork行为合同、验证和同步边界。实例端口/PID、配置/名单、插件版本总表、备份路径及详细日期验收
 归所属运维记录，不复制进公开fork；源码、文档、CI artifact和生产部署是不同状态。
+
+### N18 共享Focus子代理观察修复（源码候选，未部署）
+
+- `subagent.started`从工具调用metadata捕获派发时`focus_scope_id`；显式空值表示普通派发。成员执行会话、权限、任务管理器和结果交付保持原归属。
+- 子代理全部生命周期仍记录在真实成员下，Dashboard先按成员累积，再按开始事件的不可变归属投影共享组；任务键包含成员与开始事件，工具卡定位携带成员＋调用ID。成员重启仍消费真实`session.start`，不复制组启动或按结束时当前组重新分配。
+- 共享组`history.load`首页沿现有`subagent.history`补发成员生命周期，即便组时间线没有更多页。旧started缺少归属时，仅用保留账本中开始事件之后的组Planner工具结果项`session_id + tool_call_id`与`started.call_id`精确连接；同成员调用ID重复、多个组声称同一调用、缺Planner或缺started均不猜测。已有显式归属优先，补齐只在返回载荷中，不迁库、不建立任务存储。
+- 查询限于既有账本保留上限；补发沿用500事件、前端每成员50任务/2000事件限制。超过窗口可能缺少开始事件而不展示，不能承诺恢复已裁剪历史。组历史支持不依赖当前成员名单，也不把成员全部历史归入组。
+- 定向合同入口：`pytests/neko/test_focus_subagents.py`（真实SQLite账本、派发/停止和WS历史入口）及既有`dashboard/src/routes/monitor/use-maisaka-monitor.test.ts`（实时、乱序/重复补发、跨成员碰撞、改组与重启）。主代理已审阅归属与历史加载边界；未运行生产、收费模型或QQ探针，发布仍需同SHA门禁与匹配Dashboard制品。
+- 本地验证：Windows隔离禁网络7项行为＋16项来源策略通过；固定Bun1.2.1复用依赖，监控Hook/子代理面板57项通过，应用与Vitest两份TypeScript检查通过。主代理标准宿主门禁674项全部通过；首轮漏传既有`NEKO_PLUGIN_FIXTURES`导致9项夹具读取失败，指定现成夹具后通过，未改业务或放宽门禁。新测试格式检查已补齐。复用监控测试时用同环境HEAD字节副本确认两条旧断言（已删除`background`字段、阶段快照不建立会话）原本失败，更新测试契约后通过，未改变阶段业务实现。Linux CI及新Dashboard制品另按精确提交记录，不把本地测试当已部署。
+
+N17为已撤回的Telegram宿主候选，不复用其编号；新观察行为登记N18。
 
 <a id="11月11日n08配置扩展源码候选未部署"></a>
 ### N08任务内可配置回落（11月11日已上线）
@@ -157,7 +168,7 @@ Dashboard源码树`d23624c94f990638046ea0780b2ca1985c7188ce`，dist265文件/809
 `pytests/neko/test_source_policy.py`从本表读取ID/slug，解析Python真实注释及模块/类/函数文档字符串，
 禁止未知ID、slug错配及缺边界说明，已纳管Python源必须有标记；普通字符串/提示词不算标记。
 同文件允许多个ID；`uv.lock`仅走原字节hash校验，Dashboard沿独立制品合同。
-原门禁继续验证36源＋锁37项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
+原门禁继续验证39源＋锁40项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
 逐ID核对维护标记、实现及测试入口；hash只能检测漂移，不能证明行为。
 当前双平台门禁见顶部；本次纯文档核对不重跑全量行为测试，不把旧605项标记维护验收当当前结果。
 
@@ -179,6 +190,7 @@ Dashboard源码树`d23624c94f990638046ea0780b2ca1985c7188ce`，dist265文件/809
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
 | N15 bounded-steering | 普通聊天有限消息打断：`src/maisaka/reasoning_engine.py`、配置说明`src/config/official_configs.py` | `pytests/neko/test_bounded_steering.py`实际循环、准备竞态、取消/失败清理、关闭开关 | 上游跨重请求限制消息打断且保留排队输入与外部取消；共享Focus合同不变 |
 | N16 planner-progress | 请求局部进度：`src/llm_models/{request_progress,utils_model}.py`、`src/maisaka/{reasoning_engine,focus/group_runtime}.py`；UI：`dashboard/src/routes/monitor/maisaka-monitor.tsx`的`StageStatusContent`/`ToolExecutionElapsed` | `pytests/neko/test_planner_progress.py`并发隔离、完成/取消清理、观察失败不影响请求 | 上游展示请求/重试/候选切换及实时耗时，保原超时/候选策略 |
+| N18 focus-subagents | 共享Focus子代理观察归属：`src/maisaka/builtin_tool/subagent.py`、`src/maisaka/monitor/{events,event_store}.py`、`src/webui/routers/websocket/unified.py`；UI：`dashboard/src/lib/maisaka-monitor-client.ts`及`dashboard/src/routes/monitor/{use-maisaka-monitor,subagent-panel-state,subagent-panel,maisaka-monitor}` | `pytests/neko/test_focus_subagents.py`、`dashboard/src/routes/monitor/use-maisaka-monitor.test.ts`；成员/调用精确关联、停止/改组/重启、实时和历史回放 | 上游覆盖不可变派发归属与成员身份、历史精确关联及跨成员任务碰撞，且保执行与权限边界 |
 
 N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planner，退出后继承上下文失效；不改等待参数、总期限、重试/切模型策略，不让摘要/Replyer覆盖Planner进度。前端复用现有elapsed组件，不增加服务端心跳。
 

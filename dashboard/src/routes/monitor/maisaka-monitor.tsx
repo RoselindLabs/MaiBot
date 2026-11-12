@@ -1384,7 +1384,8 @@ function PlannerToolResultCard({
           <button
             type="button"
             className="text-primary flex items-center gap-1 text-[11px] hover:underline"
-            onClick={() => openSubagentPanel(tool.tool_call_id)}
+            // NEKO: N18 focus-subagents — bind navigation to the actual member, not call ID alone.
+            onClick={() => openSubagentPanel(tool.tool_call_id, tool.session_id)}
             title="在右侧栏查看这个子代理的运行过程"
           >
             <Bot className="h-3 w-3" />

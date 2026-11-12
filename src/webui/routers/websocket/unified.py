@@ -239,7 +239,8 @@ async def _handle_maisaka_monitor_call(connection_id: str, message: Dict[str, An
         before_event_id=before_event_id,
         limit=limit,
     )
-    if before_event_id == 0 and page.has_more:
+    # NEKO: N18 focus-subagents — member lifecycle events are outside the group's timeline page.
+    if before_event_id == 0 and (page.has_more or session_id.startswith("focus:")):
         # 首页之前可能还有未结束的子代理任务，随首页补齐子代理面板所需的事件。
         subagent_events = await asyncio.to_thread(
             load_session_subagent_events,

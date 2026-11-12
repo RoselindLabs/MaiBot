@@ -388,8 +388,11 @@ async def handle_tool(
         )
 
     task_id = task_manager.allocate_task_id()
+    # NEKO: N18 focus-subagents — capture dispatch ownership; execution stays with the real member.
+    focus_scope_id = str(invocation.metadata.get("focus_scope_id") or "")
     await emit_subagent_started(
         session_id=runtime.session_id,
+        focus_scope_id=focus_scope_id,
         task_id=task_id,
         call_id=invocation.call_id,
         description=task,

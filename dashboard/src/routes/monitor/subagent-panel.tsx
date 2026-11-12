@@ -97,6 +97,12 @@ function TaskListItem({
           <TaskElapsed task={task} />
         </span>
       </span>
+      {/* NEKO: N18 focus-subagents — shared lists retain the dispatching member's display name. */}
+      {task.focusScopeId && (
+        <span className="truncate pl-4 text-[11px] opacity-80" title={task.sessionId}>
+          {task.sessionName || task.sessionId.slice(0, 8)}
+        </span>
+      )}
       <span className="truncate pl-4 text-[11px] opacity-80">{task.description}</span>
       <span className="truncate pl-4 font-mono text-[11px] opacity-80">
         第 {Math.min(task.rounds.length, task.maxRounds)} / {task.maxRounds} 轮 · {formatToolUsage(task.toolUsage)}
@@ -203,7 +209,7 @@ function TaskDetail({ task }: { task: SubagentTaskInfo }) {
 
 /** 检查器右侧栏的「子代理」视图：任务列表 + 选中任务的过程。 */
 export function SubagentInspectorView() {
-  const { selectedTaskKey, focusCallId } = useSubagentPanelState()
+  const { selectedTaskKey, focusCallId, focusSessionId } = useSubagentPanelState()
   const { subagentTasks } = useMaisakaMonitorSession()
 
   // 运行中的排在前面，其余按开始时间从新到旧
@@ -219,11 +225,12 @@ export function SubagentInspectorView() {
   // 从时间线卡片跳转过来时，定位到对应的任务
   useEffect(() => {
     if (!focusCallId) return
-    const focusedTask = subagentTasks.find((task) => task.callId === focusCallId)
-    if (focusedTask) {
-      setSubagentPanelState({ selectedTaskKey: focusedTask.key, focusCallId: null })
+    // NEKO: N18 focus-subagents — do not pick an arbitrary member when a call ID is ambiguous.
+    const matches = subagentTasks.filter((task) => task.callId === focusCallId && (!focusSessionId || task.sessionId === focusSessionId))
+    if (matches.length === 1) {
+      setSubagentPanelState({ selectedTaskKey: matches[0].key, focusCallId: null, focusSessionId: null })
     }
-  }, [focusCallId, subagentTasks])
+  }, [focusCallId, focusSessionId, subagentTasks])
 
   if (sortedTasks.length === 0) {
     return (

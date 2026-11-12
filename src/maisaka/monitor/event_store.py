@@ -158,6 +158,10 @@ def load_session_subagent_events(
     这些事件数量很少，随首页一并补发，保证子代理面板完整。
     """
 
+    # NEKO: N18 focus-subagents — group panels replay member events, never synthetic session starts.
+    if session_id.startswith("focus:"):
+        return _load_focus_subagent_events(session_id, limit=limit)
+
     with get_db_session(auto_commit=False) as session:
         statement = (
             select(MaisakaMonitorEventRecord)
@@ -169,6 +173,80 @@ def load_session_subagent_events(
         )
         records = list(reversed(session.exec(statement).all()))
     return [_record_to_replay_event(record) for record in records]
+
+
+def _load_focus_subagent_events(session_id: str, *, limit: int) -> list[dict[str, Any]]:
+    """NEKO: N18 focus-subagents — bounded read-only join on dispatch evidence, not current membership.
+
+    Legacy starts require a unique member/call pair and a single authoritative Focus planner owner.
+    Lifecycle task IDs are local to a member and may be reused after restart. Keep those boundaries
+    while selecting events; the UI receives the real member session.start without cloning it.
+    """
+    with get_db_session(auto_commit=False) as session:
+        records = list(reversed(session.exec(
+            select(MaisakaMonitorEventRecord)
+            .where(col(MaisakaMonitorEventRecord.event_type).in_(SUBAGENT_HISTORY_EVENT_TYPES))
+            .order_by(MaisakaMonitorEventRecord.event_id.desc())
+            .limit(MAX_MONITOR_EVENT_RECORDS)
+        ).all()))
+        events = [_record_to_replay_event(record) for record in records]
+        legacy_counts: dict[tuple[str, str], int] = {}
+        for event in events:
+            data = event["data"]
+            if event["event"] == "subagent.started":
+                key = (str(data.get("session_id") or ""), str(data.get("call_id") or ""))
+                legacy_counts[key] = legacy_counts.get(key, 0) + 1
+
+        owners: dict[tuple[str, str], dict[str, int]] = {}
+        if any(event["event"] == "subagent.started" and "focus_scope_id" not in event["data"] for event in events):
+            # Read only tool summaries, not the potentially large planner prompt/response payloads.
+            rows = session.execute(text("""
+                SELECT event_id, session_id, json_extract(payload_json, '$.tools') AS tools_json
+                FROM maisaka_monitor_events
+                WHERE session_id LIKE 'focus:%'
+                  AND event_type IN ('planner.progress', 'planner.finalized')
+                ORDER BY event_id DESC LIMIT :limit
+            """), {"limit": MAX_MONITOR_EVENT_RECORDS}).all()
+            for row in rows:
+                for tool in json.loads(row.tools_json or "[]"):
+                    if tool.get("tool_name") != "subagent":
+                        continue
+                    member = str(tool.get("session_id") or "")
+                    call_id = str(tool.get("tool_call_id") or "")
+                    if member and call_id:
+                        # Descending rows: keep the latest snapshot that contains this executed tool.
+                        owners.setdefault((member, call_id), {}).setdefault(row.session_id, row.event_id)
+
+    selected: list[dict[str, Any]] = []
+    active: dict[str, set[str]] = {}
+    for event in events:
+        data = event["data"]
+        member = str(data.get("session_id") or "")
+        task_id = str(data.get("task_id") or "")
+        tasks = active.setdefault(member, set())
+        if event["event"] == "session.start":
+            if tasks:
+                selected.append(event)
+            tasks.clear()
+        elif event["event"] == "subagent.started":
+            tasks.discard(task_id)
+            scope = data.get("focus_scope_id")
+            if "focus_scope_id" not in data:
+                key = (member, str(data.get("call_id") or ""))
+                evidence = owners.get(key, {})
+                if (
+                    legacy_counts.get(key) == 1 and set(evidence) == {session_id}
+                    and evidence[session_id] > data["event_id"]
+                ):
+                    scope = session_id.removeprefix("focus:")
+            if scope and f"focus:{scope}" == session_id:
+                tasks.add(task_id)
+                selected.append({**event, "data": {**data, "focus_scope_id": scope}})
+        elif task_id in tasks:
+            selected.append(event)
+            if event["event"] == "subagent.finished":
+                tasks.discard(task_id)
+    return selected[-max(1, min(limit, MAX_SUBAGENT_HISTORY_EVENTS)):]
 
 
 def load_session_summaries() -> list[dict[str, Any]]:

@@ -769,11 +769,14 @@ async def emit_subagent_started(
     description: str,
     granted_tools: List[str],
     max_rounds: int,
+    focus_scope_id: str = "",
 ) -> None:
     """广播子代理任务开始；call_id 是 Planner 发起这次派发的工具调用 id。"""
 
     await _broadcast("subagent.started", {
         "session_id": session_id,
+        # NEKO: N18 focus-subagents — empty means ordinary dispatch, absent means legacy evidence needed.
+        "focus_scope_id": focus_scope_id,
         "task_id": task_id,
         "call_id": call_id,
         "description": _clip_subagent_event_text(description, SUBAGENT_EVENT_TEXT_MAX_CHARS),

@@ -348,6 +348,9 @@ export interface ReplierResponseEvent {
 /** 子代理任务开始；call_id 是 Planner 发起这次派发的工具调用 id */
 export interface SubagentStartedEvent {
   session_id: string
+  // NEKO: N18 focus-subagents — immutable dispatch scope; absent only on legacy events.
+  focus_scope_id?: string
+  session_name?: string
   task_id: string
   call_id: string
   description: string

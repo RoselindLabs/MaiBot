@@ -580,9 +580,10 @@ describe('阶段状态', () => {
     expect(view.result.current.stageStatuses.size).toBe(2)
     expect(view.result.current.stageStatuses.get('session-a')?.stage).toBe('回复中')
     expect(view.result.current.stageStatuses.get('session-b')?.stage).toBe('思考中')
-    // 快照事件不进时间线也不更新会话
+    // 快照恢复会话展示，但不进入时间线或增加账本事件计数。
     expect(view.result.current.allTimeline).toHaveLength(0)
-    expect(view.result.current.sessions.size).toBe(0)
+    expect([...view.result.current.sessions.keys()]).toEqual(['session-a', 'session-b'])
+    expect([...view.result.current.sessions.values()].map((session) => session.eventCount)).toEqual([0, 0])
   })
 
   it('stage.removed 移除对应会话的阶段状态', async () => {
@@ -1187,6 +1188,76 @@ describe('内存裁剪', () => {
 })
 
 describe('子代理任务', () => {
+  it('共享 Focus 按派发归属投影成员生命周期，同名任务、调用与重启互不覆盖', async () => {
+    const view = await mountMonitor(await importHookModule())
+    act(() => view.result.current.setSelectedSession('focus:group:old'))
+    const started = {
+      task_id: 'subagent-2', call_id: 'same-call', description: 'synthetic',
+      granted_tools: [], max_rounds: 20, timestamp: 10, focus_scope_id: 'group:old',
+    }
+    emitMonitorEvent('subagent.started', { ...started, event_id: 1, session_id: 'a' })
+    emitMonitorEvent('subagent.started', { ...started, event_id: 2, session_id: 'b' })
+    emitMonitorEvent('subagent.started', { ...started, event_id: 3, session_id: 'ordinary', focus_scope_id: '' })
+    expect(view.result.current.subagentTasks).toHaveLength(2)
+    expect(new Set(view.result.current.subagentTasks.map((task) => task.key)).size).toBe(2)
+    // A current membership change does not move an in-flight task.
+    emitMonitorEvent('stage.status', makeStageData({ session_id: 'focus:group:new', focus_session_ids: ['a', 'b'], event_id: 4 }))
+    emitMonitorEvent('subagent.round', {
+      event_id: 5, session_id: 'b', task_id: 'subagent-2', timestamp: 11,
+      round_index: 1, content: 'b only', tool_calls: [{ id: 'tool', name: 'search', arguments: {} }],
+    })
+    emitMonitorEvent('subagent.tool_result', {
+      event_id: 6, session_id: 'b', task_id: 'subagent-2', timestamp: 12,
+      round_index: 1, call_id: 'tool', tool_name: 'search', success: true, summary: 'evidence', duration_ms: 1,
+    })
+    emitMonitorEvent('subagent.finished', {
+      event_id: 7, session_id: 'b', task_id: 'subagent-2', timestamp: 13,
+      status: 'completed', conclusion: 'b result', error_message: '', tool_usage: { search: 1 }, duration_ms: 3,
+    })
+    expect(view.result.current.subagentTasks[0].rounds).toEqual([])
+    expect(view.result.current.subagentTasks[1]).toMatchObject({ status: 'completed', conclusion: 'b result' })
+    expect(view.result.current.subagentTasks[1].rounds[0].toolCalls[0].result?.summary).toBe('evidence')
+    emitMonitorEvent('session.start', { event_id: 8, session_id: 'a', timestamp: 20 })
+    emitMonitorEvent('subagent.started', { ...started, event_id: 9, session_id: 'a', timestamp: 21, focus_scope_id: 'group:new' })
+    expect(view.result.current.subagentTasks.map((task) => task.status)).toEqual(['stopped', 'completed'])
+    act(() => view.result.current.setSelectedSession('focus:group:new'))
+    expect(view.result.current.subagentTasks).toHaveLength(1)
+    expect(view.result.current.subagentTasks[0].status).toBe('running')
+    act(() => view.result.current.setSelectedSession('a'))
+    expect(view.result.current.subagentTasks).toHaveLength(2)
+    view.unmount()
+  })
+
+  it('共享历史补发保成员身份，能补齐先到的终态并给已缓存旧 started 增补权威归属', async () => {
+    const view = await mountMonitor(await importHookModule())
+    act(() => view.result.current.setSelectedSession('focus:group:old'))
+    const started = {
+      event_id: 10, session_id: 'a', task_id: 'subagent-2', call_id: 'call', description: 'synthetic',
+      granted_tools: [], max_rounds: 20, timestamp: 10,
+    }
+    emitMonitorEvent('subagent.finished', {
+      event_id: 20, session_id: 'a', task_id: 'subagent-2', timestamp: 20,
+      status: 'failed', conclusion: '', error_message: 'synthetic failure', tool_usage: {}, duration_ms: 10,
+    })
+    emitMonitorEvent('subagent.started', started)
+    expect(view.result.current.subagentTasks).toHaveLength(0)
+    const supplement = {
+      session_id: 'focus:group:old',
+      events: [{ event: 'subagent.started', data: { ...started, focus_scope_id: 'group:old' } }],
+    }
+    emitMonitorEvent('subagent.history', supplement)
+    emitMonitorEvent('subagent.history', supplement)
+    emitMonitorEvent('subagent.started', started) // Raw member replay must not erase the enriched binding.
+    expect(view.result.current.subagentTasks).toHaveLength(1)
+    expect(view.result.current.subagentTasks[0]).toMatchObject({ sessionId: 'a', status: 'failed', errorMessage: 'synthetic failure' })
+    expect(view.result.current.timeline).toHaveLength(0)
+    act(() => view.result.current.clearTimeline())
+    act(() => view.result.current.setSelectedSession('focus:group:old'))
+    emitMonitorEvent('subagent.history', supplement)
+    expect(view.result.current.subagentTasks).toHaveLength(0)
+    view.unmount()
+  })
+
   it('子代理事件累积成任务状态，不进入主时间线', async () => {
     const hookModule = await importHookModule()
     const view = await mountMonitor(hookModule)
@@ -1230,7 +1301,6 @@ describe('子代理任务', () => {
       taskId: 'subagent-1',
       callId: 'call-1',
       status: 'running',
-      background: true,
       toolUsage: { docs_search: 1 },
     })
     expect(runningTask.rounds[0].toolCalls[0].result).toEqual({

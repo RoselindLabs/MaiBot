@@ -19,6 +19,8 @@ export interface SubagentPanelState {
   selectedTaskKey: string | null
   /** 从时间线卡片跳转过来时要定位的 Planner 工具调用 id */
   focusCallId: string | null
+  /** NEKO: N18 focus-subagents — call IDs are resolved together with their actual member. */
+  focusSessionId: string | null
 }
 
 function loadStoredView(): InspectorView {
@@ -31,6 +33,7 @@ let panelState: SubagentPanelState = {
   view: loadStoredView(),
   selectedTaskKey: null,
   focusCallId: null,
+  focusSessionId: null,
 }
 const panelListeners = new Set<() => void>()
 
@@ -58,10 +61,11 @@ export function toggleInspectorView(view: InspectorView) {
     setSubagentPanelState({ open: false })
     return
   }
-  setSubagentPanelState({ open: true, view, focusCallId: null })
+  setSubagentPanelState({ open: true, view, focusCallId: null, focusSessionId: null })
 }
 
 /** 展开右侧栏的子代理视图；传入 callId 时定位到由这次工具调用派发的任务。 */
-export function openSubagentPanel(callId?: string) {
-  setSubagentPanelState({ open: true, view: 'subagents', focusCallId: callId ?? null })
+export function openSubagentPanel(callId?: string, sessionId?: string) {
+  // NEKO: N18 focus-subagents — preserve the planner tool item's authoritative member identity.
+  setSubagentPanelState({ open: true, view: 'subagents', focusCallId: callId ?? null, focusSessionId: sessionId ?? null })
 }

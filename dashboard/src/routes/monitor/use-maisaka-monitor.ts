@@ -76,10 +76,13 @@ export interface SubagentRoundInfo {
 
 /** 一个子代理任务的完整运行情况（由 subagent.* 事件累积而成） */
 export interface SubagentTaskInfo {
-  /** 前端唯一键：后端任务 id 在重启后会从头编号，所以带上开始时间 */
+  /** 前端唯一键：成员、任务及开始事件；后端任务 id 在重启后会从头编号 */
   key: string
   taskId: string
   sessionId: string
+  /** 派发时的共享组归属；不随当前成员关系变化 */
+  focusScopeId?: string
+  sessionName?: string
   /** Planner 发起这次派发的工具调用 id，用于从时间线卡片定位到任务 */
   callId: string
   description: string
@@ -548,9 +551,12 @@ function applySubagentEvent(event: MaisakaMonitorEvent, sessionId: string) {
   if (event.type === 'subagent.started') {
     const data = event.data as SubagentStartedEvent
     const task: SubagentTaskInfo = {
-      key: data.task_id + '@' + data.timestamp,
+      // NEKO: N18 focus-subagents — task IDs and timestamps may coincide across members.
+      key: JSON.stringify([sessionId, data.task_id, getMonitorEventId(data as unknown as Record<string, unknown>) ?? data.timestamp]),
       taskId: data.task_id,
       sessionId,
+      sessionName: data.session_name,
+      focusScopeId: data.focus_scope_id,
       callId: data.call_id,
       description: data.description,
       grantedTools: data.granted_tools ?? [],
@@ -659,8 +665,17 @@ function recordSubagentEvent(event: MaisakaMonitorEvent, sessionId: string) {
     return
   }
   const insertAt = log.findIndex((item) => idOf(item) >= eventId)
-  if (idOf(log[insertAt]) === eventId) return
-  log.splice(insertAt, 0, event)
+  if (idOf(log[insertAt]) === eventId) {
+    // NEKO: N18 focus-subagents — history may enrich a previously replayed legacy start.
+    const previous = log[insertAt]
+    if (
+      event.type !== 'subagent.started' || previous.type !== 'subagent.started' ||
+      previous.data.focus_scope_id !== undefined || event.data.focus_scope_id === undefined
+    ) return
+    log[insertAt] = event
+  } else {
+    log.splice(insertAt, 0, event)
+  }
   const next = new Map(cachedSubagentTasks)
   next.delete(sessionId)
   cachedSubagentTasks = next
@@ -906,15 +921,19 @@ function applySessionsSnapshot(snapshot: SessionsSnapshotEvent) {
   }
 }
 
-/** 首页历史之前的子代理事件只用于重建子代理面板，不进入时间线。 */
+/** 首页补充的子代理事件只用于重建子代理面板，不进入时间线。 */
 function applySubagentHistory(history: SubagentHistoryEvent) {
   if (!history.session_id || !Array.isArray(history.events)) return
   for (const item of history.events) {
     const eventId = getMonitorEventId(item.data)
     if (eventId !== null && eventId <= clearedThroughEventId) continue
+    // NEKO: N18 focus-subagents — supplementary group history retains real member/restart identity.
+    if (eventId !== null && eventId > maxObservedEventId) maxObservedEventId = eventId
+    const memberId = item.data.session_id
+    if (typeof memberId !== 'string' || !memberId) continue
     recordSubagentEvent(
       { type: item.event, data: item.data } as unknown as MaisakaMonitorEvent,
-      history.session_id
+      memberId
     )
   }
   notifyStoreListeners()
@@ -1112,6 +1131,26 @@ function setSelectedSession(sessionId: string | null) {
   notifyStoreListeners()
 }
 
+// NEKO: N18 focus-subagents — project captured ownership, never the current member list.
+let projectedSubagentSource = cachedSubagentTasks
+let projectedSubagentSession: string | null = null
+let projectedSubagentTasks = emptySubagentTasks
+function getSelectedSubagentTasks() {
+  if (projectedSubagentSource === cachedSubagentTasks && projectedSubagentSession === cachedSelectedSession) {
+    return projectedSubagentTasks
+  }
+  projectedSubagentSource = cachedSubagentTasks
+  projectedSubagentSession = cachedSelectedSession
+  projectedSubagentTasks = cachedSelectedSession?.startsWith('focus:')
+    ? Array.from(cachedSubagentTasks.values()).flat().filter(
+        (task) => task.focusScopeId && `focus:${task.focusScopeId}` === cachedSelectedSession
+      )
+    : cachedSelectedSession
+      ? (cachedSubagentTasks.get(cachedSelectedSession) ?? emptySubagentTasks)
+      : emptySubagentTasks
+  return projectedSubagentTasks
+}
+
 function getSessionSnapshot() {
   const historyState = cachedSelectedSession ? getHistoryState(cachedSelectedSession) : undefined
   return {
@@ -1126,9 +1165,7 @@ function getSessionSnapshot() {
     selectedStageStatus: cachedSelectedSession
       ? cachedStageStatuses.get(cachedSelectedSession)
       : undefined,
-    subagentTasks: cachedSelectedSession
-      ? (cachedSubagentTasks.get(cachedSelectedSession) ?? emptySubagentTasks)
-      : emptySubagentTasks,
+    subagentTasks: getSelectedSubagentTasks(),
     clearTimeline,
   }
 }
