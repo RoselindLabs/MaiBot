@@ -1,5 +1,5 @@
 > **Neko maintenance fork** — based on upstream **1.4.3** (SDK **2.22.1**, Dashboard **1.10.3**), not an official MaiBot release.
-> See [NEKO_FORK.md](NEKO_FORK.md) for the small patch set, validation and upstream sync policy.
+> Start with [current status](NEKO_FORK.md#当前维护状态), [release boundaries](NEKO_FORK.md#发布与迁移边界) and the [patch ledger](NEKO_FORK.md#升级补丁台账稳定id). Versions and validated fork revisions are maintained there, not in duplicated deployment summaries.
 > Maintained by [RoselindLabs](https://github.com/RoselindLabs). Private self-echo fixes require the matching [maintained QQ adapter](https://github.com/RoselindLabs/maibot-snowluma-adapter) and a Dashboard built from the deployed commit. Source HEAD is not a production deployment record.
 > No production configuration, chat data or credentials are included.
 

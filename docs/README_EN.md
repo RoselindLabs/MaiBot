@@ -1,5 +1,5 @@
 > **Neko maintenance fork**: MaiBot **1.4.3**, SDK **2.22.1**, Dashboard **1.10.3**; not an official release.
-> Validated code is deployed; documentation HEAD does not imply a new deployment. See [NEKO_FORK.md](../NEKO_FORK.md) for current status, N01–N16 implementation/test entry points and upgrade boundaries. Instance configuration and acceptance details remain in private operations records.
+> Maintenance entry points: [current status](../NEKO_FORK.md#当前维护状态), [release/migration boundaries](../NEKO_FORK.md#发布与迁移边界), and the [N01–N16 patch ledger](../NEKO_FORK.md#升级补丁台账稳定id). Validated revisions are maintained there; source/documentation HEAD is not an instance deployment record. Instance configuration and acceptance details remain in operations records.
 
 <div align="center">
 
