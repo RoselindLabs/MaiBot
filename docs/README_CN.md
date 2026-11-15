@@ -1,5 +1,5 @@
-> **Neko维护fork**：基于MaiBot **1.4.3**，SDK **2.22.1**、Dashboard **1.10.3**，不是官方发行版。
-> 维护入口：[当前状态](../NEKO_FORK.md#当前维护状态) · [发布/迁移边界](../NEKO_FORK.md#发布与迁移边界) · [N01–N16补丁台账](../NEKO_FORK.md#升级补丁台账稳定id)。已验修订在该文档统一维护；源码/文档HEAD不代表实例部署，配置与验收细节另存运维记录。
+> **Neko维护fork**：不是官方发行版；当前基线、SDK、Dashboard和已部署修订统一见[当前状态](../NEKO_FORK.md#当前维护状态)。
+> 维护入口：[发布流程](../NEKO_FORK.md#发布与迁移边界) · [稳定补丁台账](../NEKO_FORK.md#升级补丁台账稳定id) · [历史记录](NEKO_HISTORY.md)。源码/文档HEAD不代表实例部署，私有配置与验收细节另存运维记录。
 
 <div align="center">
 
@@ -72,7 +72,7 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 ## 安装
 
-**当前fork维护基线: v1.4.3**
+**fork版本与验证：[维护状态](../NEKO_FORK.md#当前维护状态)**
 
 - **发布**：[Release](https://github.com/Mai-with-u/MaiBot/releases/) 页面展示了最新发布的正式版。
 

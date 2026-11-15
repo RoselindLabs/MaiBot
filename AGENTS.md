@@ -3,6 +3,9 @@
 - This is a thin GPL-3.0 fork. Preserve upstream history, attribution and licenses.
 - Read `NEKO_FORK.md` and `neko-patches.json` first. `main` is the upstream mirror;
   `neko/main` is the maintenance default. Never discard fork commits to sync.
+- Keep current state, contracts and the sole patch ledger in `NEKO_FORK.md`;
+  dated verification and old migrations belong in `docs/NEKO_HISTORY.md`.
+  README translations link to current state instead of copying package versions.
 - Before merging upstream, review every stable patch ID in `NEKO_FORK.md`'s upgrade ledger.
 - Mark independent maintained blocks with `NEKO: Nxx slug — reason / preserved boundary`;
   keep stable entry points, tests and retirement conditions in that existing ledger.

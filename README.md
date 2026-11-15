@@ -1,4 +1,4 @@
-> **Neko maintenance fork** — based on upstream **1.4.3** (SDK **2.22.1**, Dashboard **1.10.3**), not an official MaiBot release.
+> **Neko maintenance fork**, not an official MaiBot release. The upstream baseline, SDK, Dashboard and deployed revision are listed in [current status](NEKO_FORK.md#当前维护状态).
 > Start with [current status](NEKO_FORK.md#当前维护状态), [release boundaries](NEKO_FORK.md#发布与迁移边界) and the [patch ledger](NEKO_FORK.md#升级补丁台账稳定id). Versions and validated fork revisions are maintained there, not in duplicated deployment summaries.
 > Maintained by [RoselindLabs](https://github.com/RoselindLabs). Private self-echo fixes require the matching [maintained QQ adapter](https://github.com/RoselindLabs/maibot-snowluma-adapter) and a Dashboard built from the deployed commit. Source HEAD is not a production deployment record.
 > No production configuration, chat data or credentials are included.
@@ -78,11 +78,11 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**当前 fork 维护基线: v1.4.5（已验业务版本已上线）**
+**fork版本与已验修订：[当前维护状态](NEKO_FORK.md#当前维护状态)**
 
-<sub><sup><strong>Current fork baseline: v1.4.5 (validated code deployed)</strong></sup></sub>
+<sub><sup><strong>Fork versions and validated revisions: <a href="NEKO_FORK.md#当前维护状态">maintenance status</a></strong></sup></sub>
 
-维护修订、源码验证和稳定补丁实现/测试入口见[补丁台账](NEKO_FORK.md#升级补丁台账稳定id)；实例记录独立管理。
+维护修订、源码验证和稳定补丁实现/测试入口见[补丁台账](NEKO_FORK.md#升级补丁台账稳定id)，旧验收见[历史记录](docs/NEKO_HISTORY.md)；实例记录独立管理。
 <sub><sup>See the patch ledger for fork revisions, validation and maintained behavior; instance records are managed separately.</sup></sub>
 
 - **发布**：[Release](https://github.com/Mai-with-u/MaiBot/releases/) 页面展示了最新发布的正式版。

@@ -1,0 +1,89 @@
+# Neko fork 历史与验证记录
+
+[当前维护状态](../NEKO_FORK.md#当前维护状态) · [稳定补丁台账](../NEKO_FORK.md#升级补丁台账稳定id) · [上游更新日志](../changelogs/changelog.md)
+
+本页保存历史基线、来源数量、迁移选择和已完成验收；不是待执行清单。当前版本只看维护状态，实例私有配置、备份路径和完整现场仍归运维记录。
+
+<a id="release-145"></a>
+## 2026-11-15：1.4.5集成与上线
+
+- 上游基线`478f671e64467121fd3e39205c8d3507b5ce0bd6`；维护业务`cce16e43eff0f6e9516d650bf55ffafe74c86d4e`，SDK2.23.0、Dashboard1.10.5。主配置8.16.27、模型配置1.17.27，主库52、记忆元库31。43 Python源、3语提示与锁共47项来源；功能取舍见[现行合同](../NEKO_FORK.md#145-已授权的集成取舍)。
+- 标准禁网门禁728项通过，真实SDK及固定TTS夹具参与；迁移回归使用临时数据。首轮旧版本常量、platforms位置、市场目录/Git夹具失配已按新接口适配，未删除行为断言或放宽门禁。
+- Dashboard197项、四份TypeScript检查、`tsc -b`及Bun1.2.1 Vite构建通过，270资源。Windows组合脚本无诊断退出，逐个对应命令成功；没有修改构建脚本或补做全浏览器矩阵。
+- 同业务SHA [CI43687714166](https://github.com/RoselindLabs/MaiBot/actions/runs/43687714166)双平台合同/源码包及ci-gate成功；包内来源hash、隔离真实SDK导入与三语模板加载通过。
+- 实际切换事务77.061秒，13个启用插件就绪，主库/记忆元库及来源登记通过。SnowLuma适配器1.3.1／`88e92a8`随后标准热更，配置保持，Host未二次重启。没有模型/QQ试发，不将就绪等同自然投递验收。
+
+<a id="release-n18"></a>
+## 2026-11-13：N18共享Focus观察
+
+- 业务`561f07bf1`，[CI43249927474](https://github.com/RoselindLabs/MaiBot/actions/runs/43249927474)双平台合同/源码包/ci-gate成功；Bun1.2.1构建265资源，同版增量74.81秒就绪，40来源及配置保持。无真实模型/QQ或生产浏览器点击验收。
+- 本地7项行为＋16项来源策略、前端57项及应用/Vitest类型检查通过；标准门禁674项通过。首轮漏传`NEKO_PLUGIN_FIXTURES`导致9项读取失败，指定现成夹具后通过；未改业务或放宽门禁。
+- 同环境HEAD字节副本证实两条旧前端断言已失配（删除的`background`字段、阶段快照不建会话），更新测试合同后通过。N18当前归属/历史连接合同仍在[维护文档](../NEKO_FORK.md#n18-共享focus子代理观察修复11月13日已部署)，N17继续撤回。
+
+<a id="release-n08"></a>
+## 2026-11-11：N08可配置回落
+
+- 模型任务配置首次由1.17.25升至fork1.17.26，无新UpgradeHook；在原32项基础上增加5个配置/保存源。当前1.4.5已用1.17.27处理上游撞号，不据此旧版本回填。
+- [CI42967800030](https://github.com/RoselindLabs/MaiBot/actions/runs/42967800030)双平台合同/源码包/ci-gate成功；本地定向96项、完整禁网667项，Dashboard153项、冻结安装/tsc/Vite及1440/390合成浏览器通过。后端CI不含Dashboard，不能称前端CI已覆盖。
+- 实际37来源、265资源、DB48及模型schema通过，75.30秒就绪，无模型/QQ/TG试发。Dashboard源码树`d23624c94f990638046ea0780b2ca1985c7188ce`，265文件/8099623字节，清单SHA256 `d3e539ee4c28556c1a2a97cec6c4be02af2fd6a5a81b928f8e79758d744d3e5b`。
+
+<a id="release-143"></a>
+## 2026-11-10：1.4.3集成与上线
+
+- 上游`e5391507531706a8bfce011d55ed94628039f2de`，维护`68dfde8d003832f7c4c60905f27f6937a67d3051`；SDK2.22.1、Dashboard1.10.3、主库48、主配置8.16.18、模型配置1.17.25、公共模型目录3.0.0。
+- [CI42747352281](https://github.com/RoselindLabs/MaiBot/actions/runs/42747352281)双平台各629项、源码包及同提交Dashboard265资源已验。11插件合成Runner、私有Linux配置迁移及实例验收另存运维记录，不等同真实送达。
+- 31 Python源＋锁32项，`focus/manager.py`保持官方字节，不给新实例空组加全局兜底。统一Focus入站、旧空组副本转换及摘要字符上限选择见[现行边界](../NEKO_FORK.md#已确认行为选择及迁移边界)。
+
+<a id="decisions-143"></a>
+### 当批逐项keep/port
+
+- N01 port：真实对端/完整身份、发送先后与恢复去重接上游场景/Host。
+- N02 port：回执保留，Hook中止也报告此前成功分段，纯语音不引用。
+- N03 keep：整链20秒及取消不变，适配新准备返回值。
+- N04 port：临时素材隔离、私聊192/96及单份原子摘要，采用当时上游严格结构校验。
+- N05 port：payload签名变化后显式传ToolEntry，可信身份与文件票据独立。
+- N06/N07 keep：uv新旧错误格式兼容、有界脱敏诊断。
+- N08 keep/extend：首候选/结构化拦截，11日扩展三态回落，不改普通失败或流式边界。
+- N09 port：双32MiB及媒体表接新RPC封套，保还原限制与legacy。
+- N10 partial/keep：浮点MSE已吸收，单帧/非正上限保留。
+- N11 port：统一入站后保失败水位、8批只读原子恢复与失效成员隔离。
+- N12/N13 port：证据交接提示与正式消息身份显示合并。
+- N14 port：保持其余98包，新增imageio-ffmpeg0.8.1、pycryptodome3.24.1、qrcode8.2、rlottie-python1.3.8，保双平台/源包门禁。
+- N15/N16 port：普通群私两次打断，组级请求进度及耗时/清理；不改开关或总期限。
+
+<a id="patch-evolution"></a>
+## 1.3.15至1.4.3的来源演进
+
+`neko-patches.json`只含公开源摘要，原始字节审计及Git历史保留。以下数量不是当前白名单：
+
+- 1.3.16保维护行为并合入五源变更；1.3.17五源未改；1.3.18仅chat_loop_service/generator同步注意力漂移；1.3.19五源仍同字节，未整体格式化源码，锁保持LF。
+- 1.3.19新增uv解析后六源＋锁七项；Gemini诊断/RPC32后十项；内部压力/媒体表十六项；GIF十七项；内容止损二十项；私聊身份二十八项；N11/N12三十项；N15三十一项；6日N16从`e4914f8f1`增为31源＋锁32项。
+- N15初次Windows3.12定向9项、禁网597项通过，当时未跑Linux；此为旧准备状态，不覆盖后续同SHA上线证据。N12首次在subagent.py登记，1.4.5已迁三语模板。
+- 旧修订1.3.18/f636d1092、SDK2.19.0/Dashboard1.9.12，1.3.17/789bac67e、1.3.16/e7cc25bdf只作追溯，不重套旧hash。
+
+<a id="release-1319"></a>
+## 2026-11-04及更早：1.3.16至1.3.19
+
+- 4日1.3.19业务`1f1c41d0e0dcd00a4352ccdcb6c2c2c9c2a004a5`、SDK2.20.0、Dashboard1.9.13、DB46、28来源；配套适配器`b44d874`先标准热更，再切Host/前端，保原1.1.13、ID与配置。
+- [Host CI41845203496](https://github.com/znzsofficial/MaiBot/actions/runs/41845203496)、[适配器CI41847257068](https://github.com/znzsofficial/maibot-snowluma-adapter/actions/runs/41847257068)成功；适配器双平台58项及真实SDK包、服务器23项私聊回归、配置副本及全部来源hash通过。Bun1.2.1冻结构建221资源，HTTP首页/主JS/CSS/监控chunk匹配。
+- 一次停写备份后62.81秒就绪，11插件/适配器恢复，无模型/QQ探针，忽略自身消息开启。前批e1a5e776e为522项/31项/61.19秒，9441aa20a为24项/66.02秒，9e1c为GIF验收，均非当前门槛。
+- 1.3.16已迁DB46及http.host/port；1.3.17无新DB schema，配置8.15.59→8.15.62、模型1.17.25，旧webui监听字段迁移时已有HTTP值优先。
+- 模板当时迁入`prompts/<locale>/`，过期自定义覆盖保原文件并使用内置模板；1.4.5又分为main/instructions，旧路径说明不能当当前目录合同。
+
+### 1.3.18配置副本迁移（历史专用）
+
+当时主配置8.15.62→8.15.63、模型1.17.25、DB46；上游删旧`experimental.attention_drift`但无UpgradeHook，直接启动会丢旧表。该批用`python scripts/neko_prepare_1318.py --input <private-copy>/bot-original.toml --output <private-copy>/bot-prepared.toml`处理最新副本，输入不写、输出必须新路径。群/私表继承旧设置，显式新字段优先；其余模型、人设、Focus/名单/插件/TTS/Prompt保持，不改legacy_migration。已完成的1317/1318事务不重放。
+
+### 1.3.19配置与发布（历史）
+
+主配置8.15.63→8.15.68，模型1.17.25、DB46，无新UpgradeHook；只补空profiles/selected_profile，不切换人设。默认上下文30/60→50/75不覆盖显式值，裁切阈值120%→100%可能更早摘要；保20%目标、最低5条、真实IM计数、工具配对和素材过滤。桌宠/官方Files等不随升级启用。EULA/PRIVACY改使用须知后不再交互确认，旧文件保审计、不伪造确认；原生自更新不替代固定fork部署。
+
+<a id="verification-history"></a>
+## 验证范围的历史补充
+
+- 1.3.16上游删除`test_context_compaction.py`/`test_planner_text_reply.py`，fork保回归；已移除的`set_reply_options`断言适配同请求快照、指导、缺快照拒绝和Focus回复链，不复活API。补图片先于正文的回执、文件凭证与身份桥共存/取消覆盖。
+- 1.3.17补旧自定义模板、SDK控件白名单/认证、内部身份和HTTP迁移幂等；当批仅4项新回归及三语8模板，探索性全文件有3项失败（2项受固定zh-CN影响、1项旧expression selector元数据缺失），未因此扩修改产品。
+- 1.3.18补群/私漂移、HTTP_HOST优先级、模型思考显示、适配器身份；遥测仅platform/protocol及后台聚合，不变更开关，不连接遥测或QQ。旧日志断言改真实迁移提示，不改兼容行为。
+- 1.3.19补人设权限、桌宠归属/卸载/重复拒绝、上下文准备、工具错误监控、市场与依赖源；历史测试数量不是今后每次更新必须重跑的配额。
+
+现行测试入口、精确夹具和成功判据统一看[本地验证与CI](../NEKO_FORK.md#本地验证与-ci)；旧失败、旧“未部署”或归档数量不自动生成维护任务。

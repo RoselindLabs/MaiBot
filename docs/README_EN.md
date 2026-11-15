@@ -1,5 +1,5 @@
-> **Neko maintenance fork**: MaiBot **1.4.3**, SDK **2.22.1**, Dashboard **1.10.3**; not an official release.
-> Maintenance entry points: [current status](../NEKO_FORK.md#当前维护状态), [release/migration boundaries](../NEKO_FORK.md#发布与迁移边界), and the [N01–N16 patch ledger](../NEKO_FORK.md#升级补丁台账稳定id). Validated revisions are maintained there; source/documentation HEAD is not an instance deployment record. Instance configuration and acceptance details remain in operations records.
+> **Neko maintenance fork**, not an official release. The baseline, SDK, Dashboard and deployed revision are maintained in [current status](../NEKO_FORK.md#当前维护状态).
+> Maintenance entry points: [release process](../NEKO_FORK.md#发布与迁移边界), [stable patch ledger](../NEKO_FORK.md#升级补丁台账稳定id), and [history](NEKO_HISTORY.md). Source/documentation HEAD is not an instance deployment record; private configuration and acceptance details remain in operations records.
 
 <div align="center">
 
@@ -72,7 +72,7 @@ MaiSaka is more than just a bot, and more than a "helpful assistant" that comple
 
 ## Installation
 
-**Current fork maintenance baseline: v1.4.3**
+**Fork version and verification: [maintenance status](../NEKO_FORK.md#当前维护状态)**
 
 - **Download**: Visit the [Release](https://github.com/Mai-with-u/MaiBot/releases/) page to get the latest version.
 
