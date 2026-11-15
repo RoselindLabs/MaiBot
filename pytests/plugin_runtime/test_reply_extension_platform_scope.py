@@ -9,21 +9,25 @@ import pytest
 
 from src.core.tooling import ToolAvailabilityContext
 from src.plugin_runtime import integration
-from src.plugin_runtime.host.component_registry import ComponentRegistrationError, ComponentRegistry
+from src.plugin_runtime.host.component_registry import ComponentRegistry
 from src.plugin_runtime.host.reply_extensions import (
     ReplyExtensionExecution,
     build_reply_extensions_schema,
     get_reply_extensions,
 )
 from src.plugin_runtime.protocol.envelope import ComponentDeclaration
+from src.plugin_runtime.runner.plugin_loader import PluginMeta
+from src.plugin_runtime.runner.runner_main import PluginRunner
 
 
 def registry(platforms):
     result = ComponentRegistry()
     schema = {"type": "object", "properties": {"caption": {"type": "string", "default": ""}}}
     result.register_plugin_components("test", [
-        {"name": "restricted", "component_type": "REPLY_EXTENSION",
-         "metadata": {"platforms": platforms, "parameters_schema": schema}},
+        ComponentDeclaration(
+            name="restricted", component_type="REPLY_EXTENSION", plugin_id="test",
+            platforms=platforms, metadata={"parameters_schema": schema},
+        ).model_dump(),
         {"name": "unlimited", "component_type": "REPLY_EXTENSION", "metadata": {"parameters_schema": schema}},
     ])
     return result
@@ -43,7 +47,7 @@ def test_reply_schema_filters_platform(monkeypatch, declaration, platform):
 
 @pytest.mark.parametrize("invalid", [1, True, {}, "", " ", ["telegram", None], [""], [2]])
 def test_invalid_platforms_fail_registration(invalid):
-    with pytest.raises(ComponentRegistrationError, match="platforms"):
+    with pytest.raises(ValueError, match="platforms"):
         registry(invalid)
 
 
@@ -58,19 +62,33 @@ def test_normalization_and_management_inventory(monkeypatch):
     assert "test.restricted" in schema["properties"]
 
 
-def test_sdk_declaration_survives_wire_protocol_and_filters_reply_schema(monkeypatch):
+@pytest.mark.asyncio
+@pytest.mark.parametrize("declaration_style", ["sdk", "legacy_metadata"])
+async def test_sdk_declaration_survives_wire_protocol_and_filters_reply_schema(monkeypatch, tmp_path, declaration_style):
     class Plugin:
+        def get_components(self):
+            components = collect_components(self)
+            if declaration_style == "legacy_metadata":
+                for component in components:
+                    for field in ("platforms", "chat_scope", "allowed_session"):
+                        if field in component:
+                            component["metadata"][field] = component.pop(field)
+            return components
+
         @ReplyExtension("forward_images", platforms=" QQ ", parameters={"caption": {"type": "string"}})
         async def forward_images(self, **kwargs):
             return {}
 
-    component = collect_components(Plugin())[0]
-    declaration = ComponentDeclaration(
-        name=component["name"], component_type=component["type"], plugin_id="test",
-        chat_scope=component["chat_scope"], allowed_session=component["allowed_session"],
-        metadata=component["metadata"],
+    manifest = SimpleNamespace(
+        name="Test", version="1.0.0", plugin_type="extension", capabilities=[],
+        plugin_dependency_ids=[], llm_provider_client_types=[],
     )
+    meta = PluginMeta("test", "test", str(tmp_path), Plugin(), manifest)
+    registration = await PluginRunner("unused", "test", [])._build_plugin_registration_payload(meta)
+    declaration = registration.components[0]
     wire_declaration = ComponentDeclaration.model_validate_json(declaration.model_dump_json())
+    assert wire_declaration.platforms == ["qq"]
+    assert {"platforms", "chat_scope", "allowed_session"}.isdisjoint(wire_declaration.metadata)
     result = ComponentRegistry()
     result.register_plugin_components("test", [wire_declaration.model_dump()])
     supervisor = SimpleNamespace(component_registry=result)
@@ -85,8 +103,8 @@ def test_platform_scope_combines_with_chat_and_session_scope():
     result = ComponentRegistry()
     result.register_component(
         "group_extension", "REPLY_EXTENSION", "test",
-        {"platforms": ["telegram", "qq"], "parameters_schema": {"type": "object", "properties": {}}},
-        chat_scope="group", allowed_session=["session-1"],
+        {"parameters_schema": {"type": "object", "properties": {}}},
+        chat_scope="group", allowed_session=["session-1"], platforms=["telegram", "qq"],
     )
     for platform, group, session, expected in [
         ("telegram", True, "session-1", True), ("qq", True, "session-1", True),

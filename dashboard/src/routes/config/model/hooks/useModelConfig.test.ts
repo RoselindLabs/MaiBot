@@ -186,6 +186,39 @@ function lastToast() {
 }
 
 describe('Gemini 回落引用维护', () => {
+  it.each(['single', 'batch'] as const)('删除普通候选保留 custom 目标及完整任务参数（%s）', async (mode) => {
+    const task = {
+      model_list: ['ordinary', 'chat'],
+      gemini_fallback_mode: 'custom' as const,
+      gemini_fallback_model: 'chat',
+      temperature: 0.7,
+      max_tokens: 2048,
+      hard_timeout: 90,
+      selection_strategy: 'sequence',
+    }
+    stubConfig({
+      models: [model('ordinary'), model('chat')],
+      model_task_config: { replyer: task },
+    })
+    const { result, unmount } = await renderLoadedHook()
+    vi.useFakeTimers()
+    if (mode === 'single') {
+      act(() => result.current.openDeleteDialog(0))
+      act(() => result.current.handleConfirmDelete())
+    } else {
+      act(() => result.current.toggleModelSelection(0))
+      act(() => result.current.handleConfirmBatchDelete())
+    }
+    const expectedTasks = { replyer: { ...task, model_list: ['chat'] } }
+    expect(result.current.models.map(({ name }) => name)).toEqual(['chat'])
+    expect(result.current.taskConfig).toEqual(expectedTasks)
+    expect(result.current.invalidGeminiFallbacks).toEqual([])
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(updateModelConfigSectionMock).toHaveBeenCalledWith('model_task_config', expectedTasks)
+    expect(result.current.hasUnsavedChanges).toBe(false)
+    unmount()
+  })
+
   it('模型改名原子更新目标，保留其它任务', async () => {
     stubConfig({ model_task_config: {
       replyer: { model_list: ['chat'], gemini_fallback_mode: 'custom', gemini_fallback_model: 'chat' },
@@ -1124,11 +1157,13 @@ describe('useModelConfig 删除、批量与分页搜索', () => {
       result.current.handleConfirmDelete()
     })
     expect(result.current.models).toEqual([])
-    // 任务里仍挂着已删模型名，应记入无效引用而不是空任务
-    expect(result.current.invalidModelRefs).toEqual([
-      { taskName: 'replyer', invalidModels: ['chat'] },
-      { taskName: 'embedding', invalidModels: ['chat'] },
-    ])
+    // 上游删除合同同步清理普通引用，重检后应报告必需任务为空。
+    expect(result.current.invalidModelRefs).toEqual([])
+    expect(result.current.taskConfig).toEqual({
+      replyer: { model_list: [] },
+      embedding: { model_list: [] },
+    })
+    expect(result.current.emptyTasks).toEqual(['replyer', 'embedding'])
     expect(lastToast()).toEqual(expect.objectContaining({ title: '删除成功' }))
     expect(result.current.deleteDialogOpen).toBe(false)
     unmount()
@@ -1198,9 +1233,12 @@ describe('useModelConfig 删除、批量与分页搜索', () => {
     })
     expect(result.current.models.map((item) => item.name)).toEqual(['vision'])
     expect(result.current.selectedModels.size).toBe(0)
-    expect(result.current.invalidModelRefs).toEqual([
-      { taskName: 'replyer', invalidModels: ['chat'] },
-    ])
+    expect(result.current.invalidModelRefs).toEqual([])
+    expect(result.current.taskConfig).toEqual({
+      replyer: { model_list: [] },
+      utils: { model_list: ['vision'] },
+    })
+    expect(result.current.emptyTasks).toEqual(['replyer'])
     expect(lastToast()).toEqual(
       expect.objectContaining({
         title: '批量删除成功',

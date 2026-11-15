@@ -79,7 +79,7 @@ def main():
             "assert callable(plan_internal_history_pressure) and callable(encode_frame) and callable(decode_frame);"
             "from src.common.prompt_i18n import load_prompt_template;"
             "templates=('agent_acp','agent_acp_environment','agent_acp_failure',"
-            "'agent_planner','agent_planner_continue','agent_planner_resume','a_memorix_fact_deduplication');"
+            "'agent_planner','agent_planner_continue','agent_planner_resume','a_memorix_fact_deduplication','maisaka_subagent');"
             "assert all(load_prompt_template(name,locale=locale).template "
             "for name in templates for locale in ('zh-CN','en-US','ja-JP'));"
             "assert all(Path(m.__file__).resolve().is_relative_to(root) for m in [reply,compaction,generator,query]);"

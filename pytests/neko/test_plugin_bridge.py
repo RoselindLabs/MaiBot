@@ -203,7 +203,7 @@ async def test_tts_segments_survive_host_quote_and_visibility_chain(engine, monk
         )
     result = await reply.execute_reply(
         context,
-        {"msg_id": target.message_id, "reply_reference": "synthetic", "plugin_options": {"neko.tts.voice": {}}},
+        {"msg_id": target.message_id, "chat_anlyze": "synthetic", "plugin_options": {"neko.tts.voice": {}}},
         call_id="execution",
         target_message=target,
         supplement_runner=supplement_runner,

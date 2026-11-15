@@ -25,6 +25,7 @@ _HOP_HEADERS = frozenset({
     "transfer-encoding", "upgrade",
 })
 _REQUEST_PRIVATE_HEADERS = frozenset({"host", "cookie", "authorization", "origin", "forwarded"})
+# NEKO: N19 host-origin — 保留既有WebUI开发来源，不扩大Cookie会话来源边界。
 DEVELOPMENT_ORIGINS = frozenset({"http://localhost:7999", "http://127.0.0.1:7999"})
 
 
@@ -33,6 +34,7 @@ class SessionValidator(Protocol):
 
     def valid(self, session: str | None) -> bool: ...
 
+    # NEKO: N19 host-origin — 反代丢端口时以会话登录来源核对。
     def login_origin(self, session: str | None) -> str | None: ...
 
 
@@ -60,6 +62,7 @@ def _request_headers(headers: Mapping[str, str]) -> Dict[str, str]:
 
 
 def same_webui_origin(headers: Mapping[str, str], login_origin: str | None = None) -> bool:
+    """NEKO: N19 host-origin — 移植原同源/Fetch元数据检查，保无Origin与反代端口合同。"""
     origin = headers.get("origin")
     if origin is None or origin in DEVELOPMENT_ORIGINS:
         return True
@@ -117,14 +120,20 @@ def _response_headers(headers: Mapping[str, str], bot_id: str) -> Dict[str, str]
 class BotProxy:
     """每次转发使用独立的客户端：通道地址随 Bot 的每次运行变化，不跨运行复用连接。"""
 
-    def __init__(self, supervisor: BotSupervisor, sessions: SessionValidator) -> None:
+    def __init__(self, supervisor: BotSupervisor, sessions: SessionValidator | None) -> None:
         self.supervisor = supervisor
         self.sessions = sessions
 
-    def _require_session(self, connection: Any) -> None:
-        session = connection.cookies.get(self.sessions.cookie_name)
-        if not self.sessions.valid(session):
+    def is_authenticated(self, connection: Request | WebSocket) -> bool:
+        sessions = self.sessions
+        return sessions is not None and sessions.valid(connection.cookies.get(sessions.cookie_name))
+
+    def _require_session(self, connection: Request | WebSocket) -> None:
+        if not self.is_authenticated(connection):
             raise HTTPException(401, "请先登录 WebUI")
+        # NEKO: N19 host-origin — HTTP及WebSocket代理继续绑定已认证会话的WebUI来源。
+        assert self.sessions is not None
+        session = connection.cookies.get(self.sessions.cookie_name)
         if not same_webui_origin(connection.headers, self.sessions.login_origin(session)):
             raise HTTPException(403, "请从当前 WebUI 发起请求")
 
@@ -210,7 +219,7 @@ class BotProxy:
 
         async def session_is_current() -> bool:
             nonlocal revoked
-            if self.sessions.valid(websocket.cookies.get(self.sessions.cookie_name)):
+            if self.is_authenticated(websocket):
                 return True
             # 改密码、登出和会话到期也必须作用于已有长连接；不能等下一次握手才停止转发。
             if not revoked:

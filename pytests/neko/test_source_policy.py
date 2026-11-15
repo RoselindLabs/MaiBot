@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_all_registered_source_bytes_match():
     manifest = json.loads((ROOT / "neko-patches.json").read_text(encoding="utf-8"))
-    assert len(manifest["sources"]) == 40
+    assert len(manifest["sources"]) == 47
     for name, digest in manifest["sources"].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
 
@@ -121,7 +121,7 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
     current = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     before = {package["name"]: package["version"] for package in official["package"]}
     after = {package["name"]: package["version"] for package in current["package"]}
-    reviewed = {"maibot": "1.4.3", "maibot-dashboard": "1.10.3", "maibot-plugin-sdk": "2.22.1"}
+    reviewed = {"maibot": "1.4.5", "maibot-dashboard": "1.10.5", "maibot-plugin-sdk": "2.23.0"}
     added = {"imageio-ffmpeg": "0.8.1", "pycryptodome": "3.24.1", "qrcode": "8.2", "rlottie-python": "1.3.8"}
     assert after == {**before, **reviewed, **added}
     official_packages = {package["name"]: package for package in official["package"]}
@@ -136,8 +136,8 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
         )
     )
     assert project["project"]["dependencies"] == upstream_project["project"]["dependencies"]
-    assert "maibot-plugin-sdk>=2.22.1" in project["project"]["dependencies"]
-    assert "maibot-plugin-sdk>=2.22.1" in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    assert "maibot-plugin-sdk>=2.23.0" in project["project"]["dependencies"]
+    assert "maibot-plugin-sdk>=2.23.0" in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
 
 
 def test_only_the_readonly_fork_workflow_is_active():
@@ -172,5 +172,9 @@ def test_upstream_history_license_and_application_diff_stay_narrow():
     subprocess.run(["git", "merge-base", "--is-ancestor", base, "HEAD"], cwd=ROOT, check=True)
     official_license = subprocess.check_output(["git", "show", base + ":LICENSE"], cwd=ROOT)
     assert (ROOT / "LICENSE").read_bytes() == official_license
-    names = subprocess.check_output(["git", "diff", "--name-only", base, "--", "src"], cwd=ROOT).decode().splitlines()
+    names = (
+        subprocess.check_output(["git", "diff", "--name-only", base, "--", "src", "prompts"], cwd=ROOT)
+        .decode()
+        .splitlines()
+    )
     assert set(names) == set(manifest["sources"]) - {"uv.lock"}

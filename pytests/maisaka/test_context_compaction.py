@@ -303,6 +303,7 @@ async def test_compaction_rejects_forbidden_tool_calls(monkeypatch):
     with pytest.raises(ValueError, match="禁止的工具调用"):
         await build_context_summary([message("问题")], planner_snapshot=snapshot(), previous_summary=None,
                                     recent_messages=[], session_id="test")
+    client.generate_response_from_snapshot.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -340,6 +341,7 @@ async def test_invalid_or_empty_summary_is_rejected(monkeypatch, response):
             recent_messages=[],
             session_id="test",
         )
+    client.generate_response_from_snapshot.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -403,6 +405,12 @@ def test_state_requires_all_fields_and_rejects_unstructured_filler():
     assert "未完事项" in ConversationState.model_validate(state(pending=["缺少答案"])).render()
     with pytest.raises(ValueError):
         ConversationState.model_validate({"summary": "这次是轻松闲聊"})
+    incomplete = state(topics=["必须完整"])
+    del incomplete["pending"]
+    with pytest.raises(ValueError):
+        ConversationState.model_validate(incomplete)
+    with pytest.raises(ValueError):
+        ConversationState.model_validate({**state(topics=["已知分类"]), "extra": ["不能忽略"]})
 
 
 def test_cache_diagnostics_survive_prompt_preview_normalization():

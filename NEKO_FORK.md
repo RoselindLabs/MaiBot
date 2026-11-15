@@ -2,24 +2,25 @@
 
 这是 [Mai-with-u/MaiBot](https://github.com/Mai-with-u/MaiBot) 的薄维护 fork，
 保留完整上游历史、作者归属和原 GPL-3.0/第三方许可，不是独立原创或官方发行。
-当前维护源码基线为 **1.4.3 / e5391507531706a8bfce011d55ed94628039f2de**；
+当前维护源码基线为 **1.4.5 / 478f671e64467121fd3e39205c8d3507b5ce0bd6**；
 首个维护基线 1.3.15/062d45cf 的历史与初始补丁提交保留。
 软件包仍使用上游版本号，具体修订以 **upstream SHA + fork SHA** 识别；未向官方 PyPI 包名发布。
 
 <a id="143-当前维护状态2026-11-10已上线"></a>
+<a id="143-当前维护状态2026-11-12整理"></a>
 <a id="当前维护状态"></a>
-## 1.4.3 当前维护状态（2026-11-12整理）
+## 1.4.5 源码集成状态（2026-11-15，未部署）
 
 本节为当前维护依据；后文旧SHA、来源数量和配置版本仅是当批记录，不覆盖本表。
-整理依据已有源码与实例发布记录，本轮不重新巡检生产、不重跑业务验证。
+本轮仅在独立集成分支合并与验证源码，没有巡检、修改配置或重启生产；实例仍沿用下面记录的已部署修订。
 
 | 边界 | 当前依据 |
 | --- | --- |
-| 上游基线 | MaiBot1.4.3／`e5391507531706a8bfce011d55ed94628039f2de` |
+| 上游基线 | 正式v1.4.5／`478f671e64467121fd3e39205c8d3507b5ce0bd6`，包含1.4.4及启动路径修复 |
 | 最近已部署业务修订 | `561f07bf1a999c1a9526b68fdbc8c1216fb371ec`，11月13日N18共享Focus子代理观察修复及匹配Dashboard共同上线；文档HEAD前移不构成新业务发布 |
-| 依赖与数据 | SDK2.22.1／Dashboard1.10.3／主库48；主配置8.16.18、模型任务配置1.17.26、公共模型目录3.0.0，固定`uv.lock` |
-| 来源登记 | 已部署N18修订，`neko-patches.json`纳管39源＋锁40项，仅公开源hash |
-| Dashboard | 同业务修订构建；265资源，源码树与制品关联独立于后端CI记录，不能只更新宿主而服务旧dist |
+| 集成依赖与迁移 | SDK2.23.0／Dashboard1.10.5，定向更新`uv.lock`；主库48→52、A_memorix元库29→31。主配置8.16.27、模型任务配置1.17.27、公共模型目录3.0.0；未执行生产迁移 |
+| 来源登记 | 当前公开源hash维护于`neko-patches.json`；已部署登记仍为1.4.3/N18的40项，不能提前改写服务器登记 |
+| Dashboard | 需由本次维护源码配套构建；线上1.10.3/265资源仅是旧制品，不能作为1.4.5的匹配前端 |
 | 配套QQ适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，当前配套已验1.3.0／`dad01a7`；保原插件ID，候选不冒充部署 |
 | Telegram | Host N17候选已撤回且未上线；命令后缀修复转[独立适配器fork](https://github.com/RoselindLabs/maibot-telegram-adapter)，不重新加入宿主补丁集合 |
 
@@ -27,6 +28,21 @@
 
 本文件维护fork行为合同、验证和同步边界。实例端口/PID、配置/名单、插件版本总表、备份路径及详细日期验收
 归所属运维记录，不复制进公开fork；源码、文档、CI artifact和生产部署是不同状态。
+
+### 1.4.5 已授权的集成取舍
+
+- **N01/N02/N05/N09 port**：新增聊天迁移入站闸门仍使用真实私聊对端；新reply/wait、`chat_anlyze`及无目标回复保精确分段回执/纯语音不引用；新参数过滤及顶层scope声明不替代可信工具身份；新RPC封套保双32MiB及媒体表协商。
+- **N03 keep；N04/N11 port**：表达整链20秒不变，保严格摘要必填字段/禁止额外字段及单次逻辑摘要请求，不采用上游任意异常后的第二次纠正请求。恢复仍最多8批、全批原子提交、失败保原输入/水位，unknown不重放。
+- **N08 port**：保首候选/明确拦截及legacy_grok/custom/disabled；普通model_list引用可沿上游删除流程清理，但造成任何Bot的custom目标失效时拒绝，不静默换模式或清目标。fork与上游1.17.26内容不同，新模型配置升1.17.27，缺失维护字段沿旧默认，无新增UpgradeHook。
+- **N06/N07/N10 keep；N12 port**：uv来源兼容、有界脱敏诊断、GIF剩余边界均保留；子代理证据要求迁到`prompts/{zh-CN,en-US,ja-JP}/main/maisaka_subagent.prompt`，不保失效内联常量。
+- **N13/N15/N16/N18 port**：保正式消息显示去重、普通群私两次打断、请求局部进度与共享Focus子代理不可变归属。采用上游无工具动作补判：可能增加一次fast_model请求及至多10秒等待，失败仍遵守N11新输入唤醒；只读恢复不触发补判。
+- **N14 port**：仅定向更新宿主/SDK/Dashboard，其余锁定包保持；保留上游移除但现行门禁仍使用的依赖源回归。N17继续撤销，没有现存补丁完整退役。
+- **N19 host-origin**：恢复Host原有等价同源写入及代理检查，cookie和`X-MaiBot-Host: 1`不变，不把上游删除检查作为登录兼容修复直接接收。
+- **N20 schedule-opt-in**：新增`capabilities.chat_schedules=false`，工具不可发现、服务不加载/调度/写入旧事项，直接调用拒绝。以后明确启用需重启；关闭不删除数据、不撤回已入队任务。与现有Proactive独立，不迁移它的计划或授权；主配置升8.16.27。
+- 新轻量私聊默认空名单、工具末尾加载默认false，实验性聊天迁移不执行；模型、人设、供应商、Focus范围及插件权限/开关保最新配置。相通组仅管理表达/黑话/记忆共享，旧配置由官方迁入数据库，不等于Focus组；升级前用最新副本核共享范围。
+- SnowLuma1.3.1依赖的“先迁移完整插件配置、再裁剪废弃字段”上游修复保留，但本次不发布适配器。正式升级须备份主库、记忆元库、Host状态、配置、依赖和匹配Dashboard，不能只退Git/主库覆盖新数据。
+
+**本地验收**：标准禁网络维护门禁728项全部通过；固定TTS夹具及真实SDK2.23.0参与合成契约，主库/记忆元库和相通组迁移只用临时数据。首轮旧版本常量、平台声明位置及市场目录/Git入口夹具失配已按新接口适配，未删除行为断言或放宽门禁。Dashboard相关197项、四份TypeScript检查、`tsc -b`及固定Bun1.2.1 Vite构建通过（270资源）；组合脚本在Windows无诊断退出，逐个对应命令成功，未修改构建脚本。源码包解压hash、真实SDK隔离导入与三语模板加载通过。Linux/Windows同SHA CI另查实际结果，不将本地检查冒充线上验收；源码交付不等于生产升级授权。
 
 ### N18 共享Focus子代理观察修复（11月13日已部署）
 
@@ -170,7 +186,7 @@ Dashboard源码树`d23624c94f990638046ea0780b2ca1985c7188ce`，dist265文件/809
 `pytests/neko/test_source_policy.py`从本表读取ID/slug，解析Python真实注释及模块/类/函数文档字符串，
 禁止未知ID、slug错配及缺边界说明，已纳管Python源必须有标记；普通字符串/提示词不算标记。
 同文件允许多个ID；`uv.lock`仅走原字节hash校验，Dashboard沿独立制品合同。
-原门禁继续验证39源＋锁40项hash及上游`src`差异集合，不机械要求diff每行与标记配对。
+原门禁继续验证清单全部hash及上游`src`/`prompts`差异集合，不机械要求diff每行与标记配对；N12模板也纳入摘要，Dashboard沿独立前端验证与制品合同。
 逐ID核对维护标记、实现及测试入口；hash只能检测漂移，不能证明行为。
 当前双平台门禁见顶部；本次纯文档核对不重跑全量行为测试，不把旧605项标记维护验收当当前结果。
 
@@ -187,12 +203,14 @@ Dashboard源码树`d23624c94f990638046ea0780b2ca1985c7188ce`，dist265文件/809
 | N09 rpc-media | 双端32MiB、协商媒体表/同图去重：`src/plugin_runtime/{transport/base,protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
 | N10 gif-frames | 浮点MSE已由上游吸收；保留单帧/非正上限：`src/common/utils/utils_image.py::ImageUtils.gif_2_static_image` | `pytests/neko/test_gif_static_image.py` | 上游覆盖uint8溢出、max_frames及阈值边界 |
 | N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离、无执行快照时有限只读摘要：`src/maisaka/focus/group_runtime.py`、`src/maisaka/chat_loop_service.py`、`src/maisaka/context/compaction.py` | `pytests/maisaka/test_focus_group_runtime.py`、`pytests/neko/test_focus_recovery.py` | 上游保新输入唤醒、有限摘要原子提交、失败保留输入、无自动重试循环及unknown不重放 |
-| N12 subagent-evidence | 子代理来源与核实层级交接：`src/maisaka/builtin_tool/subagent.py` | 子代理提示人工核对、宿主契约；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
+| N12 subagent-evidence | 子代理来源与核实层级交接：`prompts/{zh-CN,en-US,ja-JP}/main/maisaka_subagent.prompt`，由`src/maisaka/builtin_tool/subagent.py`加载 | 三语提示人工核对、宿主契约及来源hash；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
 | N13 dashboard-echo | 群/私聊自身回传展示合并：`dashboard/src/routes/monitor/maisaka-monitor.tsx`的`getSelfEchoIdentity`及气泡投影 | 对应监控合成样本、前端类型/构建、实际静态hash；无独立N13自动测试文件 | 上游按正式消息身份合并，缺身份和无出站对应仍保留 |
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
 | N15 bounded-steering | 普通聊天有限消息打断：`src/maisaka/reasoning_engine.py`、配置说明`src/config/official_configs.py` | `pytests/neko/test_bounded_steering.py`实际循环、准备竞态、取消/失败清理、关闭开关 | 上游跨重请求限制消息打断且保留排队输入与外部取消；共享Focus合同不变 |
 | N16 planner-progress | 请求局部进度：`src/llm_models/{request_progress,utils_model}.py`、`src/maisaka/{reasoning_engine,focus/group_runtime}.py`；UI：`dashboard/src/routes/monitor/maisaka-monitor.tsx`的`StageStatusContent`/`ToolExecutionElapsed` | `pytests/neko/test_planner_progress.py`并发隔离、完成/取消清理、观察失败不影响请求 | 上游展示请求/重试/候选切换及实时耗时，保原超时/候选策略 |
 | N18 focus-subagents | 共享Focus子代理观察归属：`src/maisaka/builtin_tool/subagent.py`、`src/maisaka/monitor/{events,event_store}.py`、`src/webui/routers/websocket/unified.py`；UI：`dashboard/src/lib/maisaka-monitor-client.ts`及`dashboard/src/routes/monitor/{use-maisaka-monitor,subagent-panel-state,subagent-panel,maisaka-monitor}` | `pytests/neko/test_focus_subagents.py`、`dashboard/src/routes/monitor/use-maisaka-monitor.test.ts`；成员/调用精确关联、停止/改组/重启、实时和历史回放 | 上游覆盖不可变派发归属与成员身份、历史精确关联及跨成员任务碰撞，且保执行与权限边界 |
+| N19 host-origin | Host来源检查：`src/host/{proxy,webui}.py` | `pytests/neko/test_host_origin.py`；Host写入口及Worker代理保同源与缺Origin兼容 | 上游提供等价来源限制且保cookie/Host写标记合同 |
+| N20 schedule-opt-in | 官方日程显式启用：`src/config/official_configs.py`、`src/maisaka/builtin_tool/__init__.py`、`src/services/schedules/service.py` | `pytests/neko/test_schedule_opt_in.py`；默认不发现/加载/写入/投递，保留旧事项 | 上游提供等价默认关闭能力开关，并明确选择迁移日程职责 |
 
 N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planner，退出后继承上下文失效；不改等待参数、总期限、重试/切模型策略，不让摘要/Replyer覆盖Planner进度。前端复用现有elapsed组件，不增加服务端心跳。
 
@@ -441,7 +459,7 @@ Life已退役且仓库改为私有，2026-10-28用户批准解除公共CI的私�
 公共CI不冒称执行私有Life消费者验证；宿主摘要隔离/精确回执/共享Focus保护与实际TTS消费者仍为必跑项。
 
 - Linux 生产锚点 Python **3.14.4**，Windows 最低 Python **3.12**；
-  Dashboard **1.10.3** 从同一校验锁安装，SDK固定 **2.22.1**；CI使用uv0.13.5，不把 latest 当生产环境。
+  Dashboard **1.10.5** 从同一校验锁安装，SDK固定 **2.23.0**；CI使用uv0.13.5，不把 latest 当生产环境。
 - 运行真实宿主类、真实 SDK，以及回执/取消/摘要/共享 Focus/回复扩展的受影响合成契约，
   不重复七插件全库，不声称覆盖整个上游。测试使用临时实例，禁止真实模型或 QQ 请求；
   唯一网络例外是 Windows 标准库内部创建 asyncio socket pair 的自连接，不放行模型代理或适配器端口。

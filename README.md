@@ -78,12 +78,12 @@ MaiSaka 不仅仅是一个机器人，不仅仅是一个可以帮你完成任务
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="depends-data/readme/sec-install-night.svg"><img src="depends-data/readme/sec-install-day.svg" alt="安装 · INSTALL" width="100%"></picture>
 
-**当前 fork 维护基线: v1.4.3（已验业务版本已上线）**
+**当前 fork 维护基线: v1.4.5（源码集成，尚未部署）**
 
-<sub><sup><strong>Current fork baseline: v1.4.3 (validated code deployed)</strong></sup></sub>
+<sub><sup><strong>Current fork baseline: v1.4.5 (source integration, not deployed)</strong></sup></sub>
 
-维护修订、源码验证和N01–N16实现/测试入口见[补丁台账](NEKO_FORK.md#升级补丁台账稳定id)；实例记录独立管理。
-<sub><sup>See the patch ledger for fork revisions, validation and N01–N16 implementation/test entry points; instance records are managed separately.</sup></sub>
+维护修订、源码验证和稳定补丁实现/测试入口见[补丁台账](NEKO_FORK.md#升级补丁台账稳定id)；实例记录独立管理。
+<sub><sup>See the patch ledger for fork revisions, validation and maintained behavior; instance records are managed separately.</sup></sub>
 
 - **发布**：[Release](https://github.com/Mai-with-u/MaiBot/releases/) 页面展示了最新发布的正式版。
   <sub><sup><strong>Download</strong>: Visit the <a href="https://github.com/Mai-with-u/MaiBot/releases/">Release</a> page to get the latest version.</sup></sub>

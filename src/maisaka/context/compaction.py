@@ -39,8 +39,9 @@ STATE_LABELS: Dict[str, str] = {
 
 
 class ConversationState(BaseModel):
-    """可直接接续对话的状态；字段缺失或格式错误时拒绝提交压缩。"""
+    """可接续对话的完整状态；缺失分类或额外字段拒绝提交。"""
 
+    # NEKO: N04 context-pressure — 五类字段必须完整，未知字段不能静默丢弃。
     model_config = ConfigDict(extra="forbid")
 
     topics: List[str]
@@ -295,23 +296,10 @@ def _build_compaction_request(
     return request
 
 
-async def build_context_summary(
-    removed_messages: Sequence[LLMContextMessage],
-    *,
-    planner_snapshot: PlannerRequestSnapshot | FocusCompactionTemplate,
-    previous_summary: ContextSummaryMessage | None,
-    recent_messages: Sequence[LLMContextMessage],
-    session_id: str,
-    source_context: str = "",
-    include_covered_data: bool = False,
-) -> ContextSummaryMessage:
-    """保留 Planner 的完整请求前缀，仅追加未覆盖资料和压缩指令。"""
-    request = await asyncio.to_thread(
-        _build_compaction_request, removed_messages, planner_snapshot=planner_snapshot,
-        previous_summary=previous_summary, recent_messages=recent_messages,
-        source_context=source_context,
-        include_covered_data=include_covered_data,
-    )
+async def _generate_compaction_summary(
+    request: ResponseRequest | ACPPlannerSnapshot | FocusCompactionTemplate, session_id: str,
+) -> str:
+    """请求并校验一份摘要，保存已收到的模型响应供排查。"""
     # NEKO: N11 focus-recovery — 复用Planner模型生成摘要，只消费文本，不执行工具。
     if isinstance(request, FocusCompactionTemplate):
         client = LLMServiceClient(task_name="planner", request_type="maisaka.context_compaction", session_id=session_id)
@@ -342,4 +330,26 @@ async def build_context_summary(
         f"input={result.prompt_tokens} hit={result.prompt_cache_hit_tokens} "
         f"miss={result.prompt_cache_miss_tokens} reported={result.prompt_cache_reported}"
     )
+    return rendered
+
+
+async def build_context_summary(
+    removed_messages: Sequence[LLMContextMessage],
+    *,
+    planner_snapshot: PlannerRequestSnapshot | FocusCompactionTemplate,
+    previous_summary: ContextSummaryMessage | None,
+    recent_messages: Sequence[LLMContextMessage],
+    session_id: str,
+    source_context: str = "",
+    include_covered_data: bool = False,
+) -> ContextSummaryMessage:
+    """保留 Planner 请求前缀，仅追加未覆盖资料和压缩指令。"""
+    request = await asyncio.to_thread(
+        _build_compaction_request, removed_messages, planner_snapshot=planner_snapshot,
+        previous_summary=previous_summary, recent_messages=recent_messages,
+        source_context=source_context,
+        include_covered_data=include_covered_data,
+    )
+    # NEKO: N04 context-pressure — 一次逻辑摘要请求，失败不追加调用；底层原重试保持。
+    rendered = await _generate_compaction_summary(request, session_id)
     return ContextSummaryMessage(content=rendered, timestamp=removed_messages[-1].timestamp)

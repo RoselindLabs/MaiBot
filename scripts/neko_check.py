@@ -20,6 +20,11 @@ TESTS = (
     "pytests/maisaka/test_planner_text_reply.py",
     "pytests/plugin_runtime/test_reply_extension_platform_scope.py",
     "pytests/plugin_runtime/test_config_widgets.py",
+    # v1.4.5: preserve legacy plugin fields before pruning and transactional sharing migration.
+    "pytests/plugin_runtime/test_config_upgrade_migration.py",
+    "pytests/test_sharing_groups.py",
+    "pytests/test_chat_migration_schema_upgrade.py",
+    "pytests/A_memorix_test/test_memory_consistency_regressions.py::test_image_batch_identity_migrates_existing_database",
     "pytests/plugin_runtime/test_internal_chat_capability.py",
     "pytests/plugin_runtime/test_message_route_identity.py::test_formal_identity_roundtrip_and_old_fields_cannot_override",
     "pytests/plugin_runtime/test_message_route_identity.py::test_inbound_rejects_undeclared_identity",

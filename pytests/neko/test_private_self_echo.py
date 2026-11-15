@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import asyncio
 import pytest
 
 from src.chat.message_receive.chat_manager import BotChatSession, ChatManager
@@ -127,6 +128,37 @@ def test_same_platform_id_in_different_routes_or_conversations_is_not_dropped():
     ]
     assert len(set(keys)) == len(keys)
     assert dedupe_key() == keys[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sender,group", [("bot", None), ("peer", None), ("bot", "group")])
+async def test_migration_gate_blocks_the_same_formal_peer_as_registration(monkeypatch, sender, group):
+    from src.chat.message_receive import bot
+    from src.services import chat_migration_gate as gate_module
+
+    gate = gate_module.ChatMigrationGate()
+    monkeypatch.setattr(gate_module, "chat_migration_gate", gate)
+    message = internal(sender=sender, group=group)
+    ChatManager().register_message(message)
+    expected_id = message.session_id
+    await gate.pause({expected_id})
+    receiver = bot.ChatBot()
+    receiver._receive_message = AsyncMock()
+    pending = asyncio.create_task(receiver._receive_with_migration_gate(message))
+    try:
+        await asyncio.sleep(0)
+        assert not pending.done()
+        receiver._receive_message.assert_not_awaited()
+        gate.resume({expected_id})
+        await asyncio.wait_for(pending, 1)
+        receiver._receive_message.assert_awaited_once_with(message)
+        assert not gate.active
+    finally:
+        gate.resume({expected_id})
+        if not pending.done():
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
 
 
 @pytest.mark.asyncio

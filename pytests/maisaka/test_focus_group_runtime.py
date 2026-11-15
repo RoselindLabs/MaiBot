@@ -163,7 +163,7 @@ class RecordingProvider:
                 metadata={"builtin_stage": "both", "visibility": "visible"},
             ),
             ToolSpec(
-                name="stop",
+                name="wait",
                 provider_name="maisaka_builtin",
                 provider_type="builtin",
                 parameters_schema={"type": "object", "properties": {}},
@@ -181,7 +181,8 @@ class RecordingProvider:
         return ToolExecutionResult(
             tool_name=invocation.tool_name, success=True, content=context.session_id,
             metadata={"after_reply": "wait", "wait_seconds": invocation.arguments["seconds"]}
-            if invocation.tool_name == "reply" else {},
+            if invocation.tool_name == "reply" else
+            {"wait_seconds": None, "pause_execution": True} if invocation.tool_name == "wait" else {},
         )
 
     async def close(self):

@@ -141,3 +141,92 @@ async def test_native_file_grant_and_neko_identity_coexist_and_revoke(monkeypatc
     else:
         service.ticket.assert_not_called()
     service.revoke.assert_called_once_with(args["_file_scope"])
+
+
+@pytest.mark.parametrize("scope_style", ["sdk", "legacy_metadata"])
+async def test_registered_scope_and_parameter_schema_preserve_opt_in_identity(monkeypatch, tmp_path, scope_style):
+    """New top-level scope wire must not remove metadata or trust model-selected sessions."""
+    from src.core.tooling import ToolAvailabilityContext
+    from src.plugin_runtime.host.component_registry import ComponentRegistry
+    from src.plugin_runtime.protocol.envelope import RegisterPluginPayload
+    from src.plugin_runtime.runner.plugin_loader import PluginMeta
+    from src.plugin_runtime.runner.runner_main import PluginRunner
+
+    class Consumer(MaiBotPlugin):
+        @Tool(
+            "synthetic_files",
+            platforms="qq",
+            chat_scope="group",
+            allowed_session=["target"],
+            trusted_context=CONTRACT,
+            parameters={"file_ref": {"type": "string"}},
+        )
+        async def read(self, **kwargs):
+            return kwargs
+
+        def get_components(self):
+            entries = collect_components(self)
+            if scope_style == "legacy_metadata":
+                for entry in entries:
+                    for field in ["platforms", "chat_scope", "allowed_session"]:
+                        if field in entry:
+                            entry["metadata"][field] = entry.pop(field)
+            return entries
+
+    plugin = Consumer()
+    manifest = SimpleNamespace(
+        name="Synthetic",
+        version="1.0.0",
+        plugin_type="extension",
+        capabilities=[],
+        plugin_dependency_ids=[],
+        llm_provider_client_types=[],
+    )
+    meta = PluginMeta("synthetic.files", "synthetic.files", str(tmp_path), plugin, manifest)
+    runner = PluginRunner("unused", "test", [])
+    payload = await runner._build_plugin_registration_payload(meta)
+    payload = RegisterPluginPayload.model_validate_json(payload.model_dump_json())
+    registry = ComponentRegistry()
+    registry.register_plugin_components(meta.plugin_id, payload.model_dump()["components"])
+    supervisor = SimpleNamespace(
+        component_registry=registry,
+        invoke_plugin=AsyncMock(return_value=SimpleNamespace(payload={"success": True, "result": {"success": True}})),
+    )
+    query = ComponentQueryService()
+    monkeypatch.setattr(query, "_iter_supervisors", lambda: [supervisor])
+    monkeypatch.setattr("src.files.service.get_file_service", lambda: SimpleNamespace(enabled=False, revoke=Mock()))
+    specs = query.get_llm_available_tool_specs(
+        ToolAvailabilityContext(platform="qq", is_group_chat=True, session_id="target"),
+    )
+    assert set(specs["synthetic_files"].parameters_schema["properties"]) == {"file_ref"}
+    invocation = ToolInvocation(
+        "synthetic_files",
+        {
+            "file_ref": "synthetic",
+            "_host_context": {"session_id": "target"},
+            "_file_scope": "forged",
+            "session_id": "target",
+            "platform": "qq",
+            "group_id": "123",
+        },
+    )
+    for execution in [None, ToolExecutionContext(session_id="foreign", platform="qq", is_group_chat=True)]:
+        assert not (await query.invoke_tool_as_tool(invocation, execution)).success
+    supervisor.invoke_plugin.assert_not_awaited()
+    execution = ToolExecutionContext(
+        session_id="target",
+        stream_id="target",
+        platform="qq",
+        is_group_chat=True,
+        group_id="123",
+    )
+    assert (await query.invoke_tool_as_tool(invocation, execution)).success
+    args = supervisor.invoke_plugin.await_args.kwargs["args"]
+    assert args["_file_scope"] == ""
+    # The real SDK callable still receives trusted kwargs after its public schema is narrowed.
+    received = await runner._invoke_plugin_callable(
+        plugin.read, **{k: v for k, v in args.items() if k != "_file_scope"}
+    )
+    assert received["_host_context"]["contract"] == CONTRACT
+    assert received["_host_context"]["session_id"] == "target"
+    assert received["_host_context"]["group_id"] == "123"

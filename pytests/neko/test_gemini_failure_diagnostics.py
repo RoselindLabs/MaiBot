@@ -770,11 +770,12 @@ def fallback_config_workspace(tmp_path, monkeypatch):
     import tomlkit
 
     from src.config.shared_models import extract_bot_model_settings, extract_catalog
+    from src.config.config import MODEL_CONFIG_VERSION
     from src.host.registry import Registry
     from src.webui.routers import config as routes
 
     data = {
-        "inner": {"version": "1.17.26"},
+        "inner": {"version": MODEL_CONFIG_VERSION},
         "api_providers": [{"name": "synthetic", "base_url": "https://example.invalid/v1", "api_key": "synthetic"}],
         "models": [
             {"name": name, "model_identifier": identifier, "api_provider": "synthetic", "model_type": "llm"}
@@ -863,7 +864,7 @@ async def test_real_config_save_rejects_invalid_custom_reference_atomically(fall
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["delete", "embedding"])
+@pytest.mark.parametrize("change", ["delete", "embedding", "provider"])
 async def test_shared_catalog_change_protects_other_bots_custom_reference(fallback_config_workspace, change):
     import tomlkit
 
@@ -876,6 +877,8 @@ async def test_shared_catalog_change_protects_other_bots_custom_reference(fallba
     h.data["model_task_config"]["planner"]["model_list"] = ["primary"]
     if change == "delete":
         h.data["models"].pop()
+    elif change == "provider":
+        h.data["api_providers"] = []
     else:
         h.data["models"][1]["model_type"] = "embedding"
     before = [path.read_bytes() for path in [h.catalog, *h.paths]]
@@ -885,10 +888,12 @@ async def test_shared_catalog_change_protects_other_bots_custom_reference(fallba
     assert "second" in exc.value.detail and "Gemini备用模型" in exc.value.detail
     assert [path.read_bytes() for path in [h.catalog, *h.paths]] == before
     other["models"] = h.data["models"]
+    other["api_providers"] = h.data["api_providers"]
     assert any("Gemini备用模型" in error for error in missing_references(other))
 
 
-def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_path, monkeypatch):
+@pytest.mark.parametrize("old_version", ["1.17.25", "1.17.26"])
+def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_path, monkeypatch, old_version):
     import tomlkit
     import tomllib
 
@@ -905,7 +910,8 @@ def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_
         if name != "web_search":
             assert task.pop("gemini_fallback_mode") == "legacy_grok"
             assert task.pop("gemini_fallback_model") == ""
-    data["inner"]["version"] = "1.17.25"
+    assert MODEL_CONFIG_VERSION == "1.17.27"
+    data["inner"]["version"] = old_version
     data["model_task_config"]["planner"]["hard_timeout"] = 83
     path.write_text(tomlkit.dumps(data), encoding="utf-8")
     loaded, updated = load_config_from_file(ModelConfig, path, MODEL_CONFIG_VERSION, True)
@@ -916,11 +922,50 @@ def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_
         if name != "web_search":
             assert task.pop("gemini_fallback_mode") == "legacy_grok"
             assert task.pop("gemini_fallback_model") == ""
-    migrated["inner"]["version"] = "1.17.25"
+    migrated["inner"]["version"] = old_version
     assert migrated == data
     schema = TaskConfig.model_json_schema()["properties"]
     assert schema["gemini_fallback_mode"]["enum"] == ["legacy_grok", "custom", "disabled"]
     assert schema["gemini_fallback_model"]["default"] == ""
+
+
+def test_fork_colliding_schema_upgrade_preserves_custom_and_adds_image_defaults(fallback_config_workspace):
+    import tomllib
+    import tomlkit
+
+    from src.config.config import MODEL_CONFIG_VERSION, ModelConfig, load_config_from_file
+    from src.config.shared_models import extract_bot_model_settings
+
+    h = fallback_config_workspace
+    h.data["inner"]["version"] = "1.17.26"
+    h.data["model_task_config"]["planner"].update(gemini_fallback_mode="custom", gemini_fallback_model="backup")
+    h.paths[0].write_text(tomlkit.dumps(extract_bot_model_settings(h.data)), encoding="utf-8")
+    original_catalog = h.catalog.read_bytes()
+    loaded, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
+    assert updated
+    task = loaded.model_task_config.planner
+    assert (task.gemini_fallback_mode, task.gemini_fallback_model, task.hard_timeout) == ("custom", "backup", 83)
+    assert loaded.models[0].max_images == 0
+    assert (loaded.models[0].image_min_side, loaded.models[0].image_max_side) == (1, 8000)
+    assert tomllib.loads(h.paths[0].read_text(encoding="utf-8"))["inner"]["version"] == "1.17.27"
+    assert h.catalog.read_bytes() == original_catalog
+    _, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
+    assert not updated
+
+
+async def test_shared_catalog_normal_deletion_keeps_upstream_cross_bot_cleanup(fallback_config_workspace):
+    import tomllib
+
+    h = fallback_config_workspace
+    h.data["models"].pop()
+    h.data["model_task_config"]["planner"]["model_list"] = ["primary"]
+    assert (await h.routes.update_model_config(h.data))["success"]
+    for path in h.paths:
+        task = tomllib.loads(path.read_text(encoding="utf-8"))["model_task_config"]["planner"]
+        assert task["model_list"] == ["primary"]
+        assert task["gemini_fallback_mode"] == "legacy_grok"
+        assert task["gemini_fallback_model"] == ""
+        assert task["hard_timeout"] == 83
 
 
 def test_empty_task_inherits_whole_fallback_config_and_refreshes(monkeypatch):

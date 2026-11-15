@@ -140,8 +140,8 @@ async def test_text_executes_once_preserves_guidance_and_ends(engine, monkeypatc
 
     execute.assert_awaited_once()
     arguments = execute.call_args.args[1]
-    assert arguments["reply_reference"] == response.content == "安慰对方，简短回应。"
-    assert set(arguments) == {"msg_id", "reply_reference"}
+    assert arguments["chat_anlyze"] == response.content == "安慰对方，简短回应。"
+    assert set(arguments) == {"msg_id", "chat_anlyze"}
     assert execute.call_args.kwargs["target_message"] is target
     await execute.call_args.kwargs["supplement_runner"]()
     supplement.assert_awaited_once_with(snapshot, response.content, "chat", True)
@@ -156,11 +156,11 @@ async def test_text_executes_once_preserves_guidance_and_ends(engine, monkeypatc
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("tool_name", ["query_memory", "stop", "wait"])
+@pytest.mark.parametrize("tool_name", ["query_memory", "wait"])
 async def test_text_with_tools_never_starts_reply(engine, monkeypatch, tool_name):
     execute = AsyncMock()
     monkeypatch.setattr(engine_module, "execute_reply", execute)
-    pause = tool_name in {"stop", "wait"}
+    pause = tool_name == "wait"
     engine._handle_tool_calls = AsyncMock(return_value=(pause, tool_name if pause else "", [], []))
     state = CycleRuntimeState()
     assert await _act(engine, _response(calls=[ToolCall("call", tool_name, {})]), state) is pause
@@ -261,10 +261,11 @@ async def test_normal_tools_use_supplement_but_focus_provider_keeps_reply(engine
     by_name = {item["name"]: item for item in definitions}
     assert "reply" not in by_name
     assert "set_reply_options" not in by_name
-    assert "与不调用任何工具时一致" not in by_name["stop"]["description"]
+    assert "stop" not in by_name
+    assert "wait" in by_name
     # Focus 直接使用 Provider，不经过普通模式的定义转换。
     focus_spec = await engine._runtime._tool_registry.get_tool_spec("reply")
-    assert focus_spec.parameters_schema["required"] == ["msg_id", "reply_reference"]
+    assert focus_spec.parameters_schema["required"] == ["chat_anlyze"]
     assert not await engine._runtime._tool_registry.has_tool("set_reply_options")
 
 
@@ -290,7 +291,7 @@ async def test_old_reply_call_cannot_send_in_passive_mode(engine, monkeypatch):
     execute = AsyncMock()
     monkeypatch.setattr(reply_module, "execute_reply", execute)
     _, _, _, results = await engine._handle_tool_calls(
-        [ToolCall("old", "reply", {"msg_id": "original", "reply_reference": "旧指令"})],
+        [ToolCall("old", "reply", {"msg_id": "original", "chat_anlyze": "旧指令"})],
         "",
         SimpleNamespace(),
         CycleRuntimeState(),
@@ -309,11 +310,14 @@ def test_prompt_and_tail_reminder_follow_experimental_switch(monkeypatch, locale
     with use_locale(locale):
         prompt = service._build_chat_system_prompt()
         reminder = service._build_planner_final_user_reminder()
-    assert ("reply_reference" in prompt) is (not enabled)
+    assert service._get_chat_prompt_name() == ("maisaka_chat_passive" if enabled else "maisaka_chat")
+    # 1.4.5 参数协议放在工具声明，动作选择放在加载的回合提醒中。
+    assert prompt
     assert "set_reply_options" not in prompt
-    assert ("stop()" in prompt and "wait()" in prompt) if enabled else ("after_reply" in prompt and "wait" in prompt)
+    assert "stop()" not in prompt
+    assert "wait" in reminder
     if enabled:
-        assert "stop" in reminder and "wait" in reminder
+        assert "wait" in reminder
     else:
         assert "reply" in reminder
 
@@ -334,7 +338,7 @@ async def test_disabled_mode_restores_reply_tool_and_does_not_send_text(engine, 
     assert state.cycle_end.reason == "planner_no_tool_end"
     passive_execute.assert_not_awaited()
     _, _, _, results = await engine._handle_tool_calls(
-        [ToolCall("normal", "reply", {"msg_id": "original", "reply_reference": "回复指导"})],
+        [ToolCall("normal", "reply", {"msg_id": "original", "chat_anlyze": "回复指导"})],
         "", SimpleNamespace(), CycleRuntimeState(),
     )
     assert results[0]["success"]
@@ -355,7 +359,7 @@ def test_focus_prompt_ignores_passive_replyer_switch(monkeypatch, enabled):
     service.passive_replyer_override = enabled
     assert service._get_chat_prompt_name() == "maisaka_chat_focus"
     prompt = service._build_chat_system_prompt()
-    assert "reply_reference" in prompt
+    assert "reply" in prompt and "session_id" in prompt
     assert "set_reply_options" not in prompt
 
 
@@ -421,7 +425,7 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
     engine._runtime.record_planner_reply = Mock()
     arguments = {
         "msg_id": target.message_id,
-        "reply_reference": "指导正文",
+        "chat_anlyze": "指导正文",
         "attach_at": [target.message_id],
         "attach_pic": [{"msg_id": target.message_id, "index": 0}],
         "attach_emoji": 1,
@@ -450,7 +454,7 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
     generator.generate_reply_with_context.assert_awaited_once()
     request = generator.generate_reply_with_context.call_args.kwargs
     assert request["reply_message"] is (None if supplemented else target)
-    for key in ("reply_reference", "attach_at", "attach_pic", "attach_emoji", "plugin_options"):
+    for key in ("chat_anlyze", "attach_at", "attach_pic", "attach_emoji", "plugin_options"):
         assert request["reply_tool_args"][key] == arguments[key]
     extension.prepare.assert_awaited_once_with(arguments["plugin_options"])
     extension.transform.assert_awaited_once()
@@ -484,7 +488,7 @@ async def test_shared_reply_service_preserves_extensions_attachments_and_send_co
 async def test_focus_reply_adapter_preserves_arguments_and_execution_id(engine, monkeypatch):
     execute = AsyncMock(return_value=ToolExecutionResult(tool_name="reply", success=True))
     monkeypatch.setattr(reply_module, "execute_reply", execute)
-    arguments = {"msg_id": "original", "reply_reference": "Focus 指导", "attach_pic": []}
+    arguments = {"msg_id": "original", "chat_anlyze": "Focus 指导", "attach_pic": []}
     await reply_module.handle_tool(
         BuiltinToolRuntimeContext(engine, engine._runtime),
         ToolInvocation(tool_name="reply", arguments=arguments, call_id="focus-call"),

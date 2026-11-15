@@ -29,6 +29,8 @@ def recovery(setup_group, monkeypatch):
     monkeypatch.setattr(service, "_build_bot_nickname_notice", lambda *a, **kw: "")
     monkeypatch.setattr(service, "_build_current_chat_attention_tail_message", lambda: "")
     monkeypatch.setattr(service, "_build_planner_final_user_reminder", lambda: "")
+    # Capacity tests isolate summary recovery; action completion has its own real-service tests below.
+    monkeypatch.setattr("src.maisaka.chat_loop_service.complete_missing_planner_action", AsyncMock(return_value=None))
 
     class Hooks:
         async def invoke_hook(self, name, **kwargs):
@@ -92,6 +94,91 @@ def enqueue(group, count=8, start=0):
     for i in range(start, start + count):
         sid = "A" if i % 2 == 0 else "B"
         group._queue_entry(sid, _chat_history(f"recovery-msg-{i}", sid))
+
+
+@pytest.mark.asyncio
+async def test_readonly_recovery_never_runs_action_judgment(recovery, monkeypatch):
+    group, _, _, state = recovery
+    judge = AsyncMock(side_effect=AssertionError("readonly recovery must not judge actions"))
+    monkeypatch.setattr("src.maisaka.chat_loop_service.complete_missing_planner_action", judge)
+    enqueue(group)
+    group._take_pending_inputs()
+    await group._recover_context([])
+    judge.assert_not_awaited()
+    assert state.summaries and not state.planner
+    assert group._considered == {}
+
+
+@pytest.mark.asyncio
+async def test_late_batch_failure_does_not_commit_any_summary(recovery):
+    group, _, trace, state = recovery
+    enqueue(group, 20)
+    group._take_pending_inputs()
+    before = list(group.entries)
+    inputs = [dict(entry.inputs) for entry in group.entries]
+
+    async def fail_second():
+        if len(state.summaries) == 2:
+            raise ValueError("second batch invalid")
+
+    state.during_summary = fail_second
+    with pytest.raises(FocusRecoveryError):
+        await group._recover_context([])
+    assert len(state.summaries) == 2
+    assert group.entries == before
+    assert [entry.inputs for entry in group.entries] == inputs
+    assert group._considered == {} and trace == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["parse", "timeout", "unexpected", "cancel"])
+async def test_action_judgment_failure_keeps_watermarks_and_waits_for_new_input(recovery, monkeypatch, failure):
+    from src.llm_models.exceptions import LLMTaskTimeoutError
+    from src.maisaka.planner_action_judge import complete_missing_planner_action
+
+    group, _, trace, state = recovery
+    monkeypatch.setattr(
+        "src.maisaka.chat_loop_service.complete_missing_planner_action", complete_missing_planner_action
+    )
+    generate = AsyncMock(return_value=LLMResponseResult.from_portable_output(response="not json"))
+    if failure != "parse":
+        generate.side_effect = {
+            "timeout": LLMTaskTimeoutError("fast_model", "planner_action_judge", 10),
+            "unexpected": ValueError("invalid judge input"),
+            "cancel": asyncio.CancelledError(),
+        }[failure]
+    monkeypatch.setattr(
+        "src.maisaka.planner_action_judge.LLMServiceClient",
+        lambda *args, **kwargs: SimpleNamespace(generate_response_with_context=generate),
+    )
+    enqueue(group, 1)
+    if failure == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await group._run_turn()
+        assert group._retry_after_sequence is None
+    else:
+        failed = asyncio.Event()
+
+        async def checkpoint():
+            if group._retry_after_sequence is not None:
+                failed.set()
+
+        group.checkpoint = checkpoint
+        group._ensure_worker()
+        try:
+            await asyncio.wait_for(failed.wait(), 2)
+            group._event.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert group._service.planner_request_snapshot is None
+            assert not group._failed
+            assert group._retry_after_sequence == group._sequence
+        finally:
+            await group.stop()
+    generate.assert_awaited_once()
+    assert state.planner == [1]
+    assert group._considered == {} and trace == []
+    assert any(entry.inputs.get("A") for entry in group.entries)
 
 
 @pytest.mark.asyncio

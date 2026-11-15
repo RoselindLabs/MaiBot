@@ -42,7 +42,7 @@ import { serializeModel } from '../serializeModel'
 import { assertGeminiFallbacks, geminiFallbackIssues } from '../geminiFallback'
 import type { APIProvider, DeleteConfirmState } from '../../modelProvider/types'
 import { cleanProviderData } from '../../modelProvider/utils'
-import { PROVIDER_TEMPLATES } from '../../providerTemplates'
+import { findTemplateByBaseUrl, PROVIDER_TEMPLATES } from '../../providerTemplates'
 import { useModelAutoSave } from './useModelAutoSave'
 import { useEmbeddingWarning, type PendingEmbeddingUpdate } from './useEmbeddingWarning'
 import { readWebSearchConfig, type WebSearchConfig } from '../../webSearch/types'
@@ -526,7 +526,7 @@ export function useModelConfig() {
     )
   }, [])
 
-  const removeModelsForProviders = useCallback(
+  const removeModelsAndTaskReferences = useCallback(
     (
       sourceModels: ModelInfo[],
       sourceTaskConfig: ModelTaskConfig | null,
@@ -651,7 +651,7 @@ export function useModelConfig() {
       }
 
       // 级联删除涉及模型和任务引用，必须整份写入，避免产生不一致的中间状态。
-      const { models: nextModels, taskConfig: nextTaskConfig } = removeModelsForProviders(
+      const { models: nextModels, taskConfig: nextTaskConfig } = removeModelsAndTaskReferences(
         models,
         taskConfig,
         affectedModels
@@ -683,7 +683,7 @@ export function useModelConfig() {
       models,
       persistModelConfigDraft,
       prepareProviderSaveBarrier,
-      removeModelsForProviders,
+      removeModelsAndTaskReferences,
       syncProviderState,
       taskConfig,
     ]
@@ -972,6 +972,9 @@ export function useModelConfig() {
           send_temperature: true,
           max_tokens: null,
           visual: false,
+          max_images: 0,
+          image_max_side: 8000,
+          image_min_side: 1,
           force_stream_mode: false,
           extra_params: {},
         }
@@ -1091,6 +1094,77 @@ export function useModelConfig() {
       taskConfig,
       toast,
     ]
+  )
+
+  const handleConfigureMaiReplier = useCallback(
+    async (modelIdentifier: 'mai_replier' | 'mai_replier_today'): Promise<boolean> => {
+      try {
+        setSaving(true)
+        const template = PROVIDER_TEMPLATES.find((item) => item.id === 'mai_replier')
+        const preset = template?.models?.find((model) => model.model_identifier === modelIdentifier)
+        if (!template || !preset || !template.defaultApiKey) {
+          throw new Error('麦麦特调回复模板不完整')
+        }
+        if (!taskConfig) throw new Error('任务配置尚未加载')
+
+        // 按服务地址识别已改名的提供商，保留用户的密钥和连接参数。
+        let provider = apiProviders.find((item) => findTemplateByBaseUrl(item.base_url)?.id === template.id)
+        const nextProviders = [...apiProviders]
+        if (!provider) {
+          let name = template.name
+          let suffix = 2
+          const usedNames = new Set(apiProviders.map((item) => item.name.trim().toLowerCase()))
+          while (usedNames.has(name.toLowerCase())) name = `${template.name} (${suffix++})`
+          provider = {
+            name,
+            base_url: template.base_url,
+            api_key: template.defaultApiKey,
+            client_type: template.client_type,
+            ...template.providerDefaults,
+          }
+          nextProviders.push(provider)
+        }
+
+        const providerName = provider.name
+        const nextModels = [...models]
+        let model = models.find((item) =>
+          item.api_provider === providerName && item.model_identifier === modelIdentifier
+        )
+        if (!model) {
+          let name = preset.name
+          let suffix = 2
+          const usedNames = new Set(models.map((item) => item.name.trim().toLowerCase()))
+          while (usedNames.has(name.toLowerCase())) name = `${preset.name} (${suffix++})`
+          model = { ...preset, name, api_provider: providerName }
+          nextModels.push(model)
+        }
+        const nextTaskConfig = {
+          ...taskConfig,
+          replyer: { ...taskConfig.replyer, model_list: [model.name] },
+        }
+        const result = await persistModelConfigDraft(nextModels, nextTaskConfig, nextProviders)
+        if (result.applyProviders) syncProviderState(nextProviders)
+        if (result.applyModels) {
+          setModels(nextModels)
+          setModelNames(nextModels.map((item) => item.name))
+        }
+        if (result.applyTaskConfig) setTaskConfig(nextTaskConfig)
+        if (result.applyModels && result.applyTaskConfig) {
+          checkTaskConfigIssues(nextTaskConfig, nextModels)
+        }
+        toast({
+          title: '麦麦特调回复已配置',
+          description: `已选择「${model.name}」用于回复，配置已保存`,
+        })
+        return true
+      } catch (error) {
+        toast({ title: '配置失败', description: (error as Error).message, variant: 'destructive' })
+        return false
+      } finally {
+        setSaving(false)
+      }
+    },
+    [apiProviders, checkTaskConfigIssues, models, persistModelConfigDraft, syncProviderState, taskConfig, toast]
   )
 
   // 保存模型编辑
@@ -1231,16 +1305,22 @@ export function useModelConfig() {
   // 确认删除模型
   const handleConfirmDelete = useCallback(() => {
     if (deletingIndex !== null) {
-      const newModels = models.filter((_, i) => i !== deletingIndex)
-      const fallbackIssues = geminiFallbackIssues(taskConfig, newModels)
+      const { models: newModels, taskConfig: nextTaskConfig } = removeModelsAndTaskReferences(
+        models,
+        taskConfig,
+        models.filter((_, i) => i === deletingIndex)
+      )
+      // NEKO: N08 gemini-fallback — prune ordinary references, but reject loss of a custom target.
+      const fallbackIssues = geminiFallbackIssues(nextTaskConfig, newModels)
       if (fallbackIssues.length) {
         toast({ title: '删除失败', description: fallbackIssues.map(({ taskName, message }) => `${taskName}：${message}`).join('\n'), variant: 'destructive' })
         return
       }
       setModels(newModels)
       setModelNames(newModels.map((m) => m.name))
+      setTaskConfig(nextTaskConfig)
       // 重新检查任务配置问题
-      checkTaskConfigIssues(taskConfig, newModels)
+      checkTaskConfigIssues(nextTaskConfig, newModels)
       toast({
         title: '删除成功',
         description: '配置将在 2 秒后自动保存',
@@ -1248,7 +1328,7 @@ export function useModelConfig() {
     }
     setDeleteDialogOpen(false)
     setDeletingIndex(null)
-  }, [checkTaskConfigIssues, deletingIndex, models, taskConfig, toast])
+  }, [checkTaskConfigIssues, deletingIndex, models, removeModelsAndTaskReferences, taskConfig, toast])
 
   const openProviderDeleteDialog = useCallback((index: number) => {
     setDeletingProviderIndex(index)
@@ -1477,23 +1557,29 @@ export function useModelConfig() {
   // 确认批量删除
   const handleConfirmBatchDelete = useCallback(() => {
     const deletedCount = selectedModels.size
-    const newModels = models.filter((_, index) => !selectedModels.has(index))
-    const fallbackIssues = geminiFallbackIssues(taskConfig, newModels)
+    const { models: newModels, taskConfig: nextTaskConfig } = removeModelsAndTaskReferences(
+      models,
+      taskConfig,
+      models.filter((_, index) => selectedModels.has(index))
+    )
+    // NEKO: N08 gemini-fallback — batch deletion must preserve the same task-local target boundary.
+    const fallbackIssues = geminiFallbackIssues(nextTaskConfig, newModels)
     if (fallbackIssues.length) {
       toast({ title: '删除失败', description: fallbackIssues.map(({ taskName, message }) => `${taskName}：${message}`).join('\n'), variant: 'destructive' })
       return
     }
     setModels(newModels)
     setModelNames(newModels.map((m) => m.name))
+    setTaskConfig(nextTaskConfig)
     // 重新检查任务配置问题
-    checkTaskConfigIssues(taskConfig, newModels)
+    checkTaskConfigIssues(nextTaskConfig, newModels)
     setSelectedModels(new Set())
     setBatchDeleteDialogOpen(false)
     toast({
       title: '批量删除成功',
       description: `已删除 ${deletedCount} 个模型，配置将在 2 秒后自动保存`,
     })
-  }, [checkTaskConfigIssues, models, selectedModels, taskConfig, toast])
+  }, [checkTaskConfigIssues, models, removeModelsAndTaskReferences, selectedModels, taskConfig, toast])
 
   // ---- 任务配置更新（与 embedding 警告协调）----
   const updateTaskConfig = useCallback(
@@ -1623,6 +1709,7 @@ export function useModelConfig() {
     editingProviderIndex,
     openProviderDialog,
     handleSaveProviderEdit,
+    handleConfigureMaiReplier,
     providerDeleteDialogOpen,
     setProviderDeleteDialogOpen,
     deletingProviderIndex,
