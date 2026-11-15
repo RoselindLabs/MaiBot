@@ -13,6 +13,10 @@
   Reuse the existing updater and valid evidence; do not turn each update into new
   backup/migration/rollback tooling, repeated drills or an ecosystem-wide test pass.
   Extra work requires a concrete changed contract or observed failure, and stays scoped to it.
+- Prepare the release entry point and dependencies alongside integration. For an authorized
+  rollout, target completion within 30 minutes of the merge commit, including the adapter;
+  do not restart that clock after tests/preparation. Report real blockers immediately,
+  without skipping required gates. After integration, return to `neko/main` for closeout.
 - Do not import runtime config/data/plugins, credentials, private prompts or chat history.
 - Preserve initial byte-audit history. When integrating a reviewed upstream tag, retain
   maintenance behavior, reconcile its source/lock changes and update the registered hashes.
