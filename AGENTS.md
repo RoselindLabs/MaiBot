@@ -9,6 +9,10 @@
   Run `pytests/neko/test_source_policy.py` through the standard gate; do not duplicate its hashes/registry.
   Hashes detect drift; they do not replace behavior review. Record keep/port/retire evidence.
 - Source creation/push is not production migration or restart authorization.
+- For version updates, read `NEKO_FORK.md`'s release/verification rules before acting.
+  Reuse the existing updater and valid evidence; do not turn each update into new
+  backup/migration/rollback tooling, repeated drills or an ecosystem-wide test pass.
+  Extra work requires a concrete changed contract or observed failure, and stays scoped to it.
 - Do not import runtime config/data/plugins, credentials, private prompts or chat history.
 - Preserve initial byte-audit history. When integrating a reviewed upstream tag, retain
   maintenance behavior, reconcile its source/lock changes and update the registered hashes.
