@@ -66,6 +66,7 @@ from .creative_language import (
 from .gemini_output import GeminiReplyFormatError, normalize_gemini_reply
 from .maisaka_expression_selector import maisaka_expression_selector
 from .reply_prompt import ChatReplyPromptMixin
+from .reply_history import HISTORY_HOOK, ReplyHistoryDraft
 
 logger = get_logger("replyer")
 
@@ -425,12 +426,14 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
         reply_tool_args: Optional[Dict[str, Any]] = None,
         think_level: int = 1,
         prompt_profile: Optional[str] = None,
+        history_draft: Optional[ReplyHistoryDraft] = None,
     ) -> List[ContextItem]:
         profile = prompt_profile or self._resolve_prompt_profile()
         if profile not in {"reply", "mai_replier"}:
             raise ValueError(f"不支持的聊天回复模板模式：{profile}")
         return self._build_reply_request_messages(
             mai_replier=profile == "mai_replier",
+            history_draft=history_draft,
             chat_history=chat_history,
             reply_message=reply_message,
             reply_reason=reply_reason,
@@ -757,6 +760,26 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
             ]
             return items
 
+    # NEKO: N23 reply-history — 每个普通模型候选在工作线程确定模板、可见行和图片，现有最终 Hook 仍只调用一次。
+    async def _prepare_generation_messages(self, **kwargs: Any) -> List[ContextItem]:
+        if (kwargs.get("prompt_profile") or self._resolve_prompt_profile()) != "reply":
+            return await asyncio.to_thread(self._build_generation_messages, **kwargs)
+        session_id = self._resolve_session_id(kwargs.get("stream_id"))
+        target = kwargs.get("reply_message")
+        target_id = target.message_id if target is not None and getattr(target, "session_id", None) == session_id else ""
+        draft = ReplyHistoryDraft(session_id, target_id)
+        items = await asyncio.to_thread(self._build_generation_messages, history_draft=draft, **kwargs)
+        results = []
+        try:
+            dispatch = await self._get_runtime_manager().invoke_hook(
+                HISTORY_HOOK, schema_version=1, session_id=session_id, reply_message_id=target_id,
+                entries=[entry.payload() for entry in draft.entries.values()],
+            )
+            results = dispatch.custom_results
+        except Exception as exc:
+            logger.warning(f"回复器历史 Hook 不可用，本轮保留原历史：{type(exc).__name__}")
+        return await asyncio.to_thread(draft.apply, items, results)
+
     async def _translate_super_creative_reply(
         self,
         *,
@@ -995,8 +1018,8 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
                     ]
                 # 视觉请求构建会解码、缩放和编码图片，在工作线程中执行，避免阻塞聊天事件循环。
                 prompt_reply_tool_args = dict(reply_tool_args_for_attempt)
-                built_request_messages = await asyncio.to_thread(
-                    self._build_generation_messages,
+                # NEKO: N23 reply-history — 在实际模型/历史选定后处理，每次重建独立句柄，不复用前次效果。
+                built_request_messages = await self._prepare_generation_messages(
                     super_creative_mode=super_creative_mode,
                     language=creative_language,
                     chat_history=attempt_history,

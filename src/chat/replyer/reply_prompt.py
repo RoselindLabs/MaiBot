@@ -54,6 +54,7 @@ from src.maisaka.context.messages import (
 )
 from src.maisaka.visual.deferred_images import transform_context_image
 from .creative_language import EXPRESSION_INTENT_GUIDANCE, GROUP_REPLY_GUIDANCE, PRIVATE_REPLY_GUIDANCE
+from .reply_history import ReplyHistoryDraft, dialogue_slot
 
 REPLY_TARGET_CONTENT_LIMIT = 300
 """聊天回复模板里目标消息内容的截断长度。"""
@@ -102,6 +103,7 @@ class ChatReplyPromptMixin:
         reply_tool_args: Optional[Dict[str, Any]] = None,
         enable_visual_message: bool = False,
         mai_replier: bool = False,
+        history_draft: Optional[ReplyHistoryDraft] = None,
     ) -> List[ContextItem]:
         """构建首条人设与注意事项 system 消息，以及聊天回复模板 user 消息。
 
@@ -161,6 +163,16 @@ class ChatReplyPromptMixin:
         scene_guidance = GROUP_REPLY_GUIDANCE if scene.is_group else PRIVATE_REPLY_GUIDANCE
         guidance_by_style = scene_guidance.get(get_locale(), scene_guidance["zh-CN"])
         reply_guidance = guidance_by_style.get(requested_style, guidance_by_style["正常回复"])
+        # NEKO: N23 reply-history — 同一份可见行同时用于模板及结构化归属，不从渲染后的用户正文还原 ID。
+        history_by_id = {
+            message.message_id: message for message in chat_history
+            if isinstance(message, ContentContextMessage) and message.message_id
+        }
+        rows = [
+            (message, line, visual_parts.get(index, [])) for index, message in enumerate(chat_history)
+            if (line := self._render_reply_history_line(message, history_by_id))
+        ]
+        dialogue = "\n".join(line for _, line, _ in rows)
         template_context = self._build_reply_template_context(
             chat_history=chat_history,
             reply_message=reply_message,
@@ -173,26 +185,28 @@ class ChatReplyPromptMixin:
         )
         template_context["reply_guidance"] = reply_guidance
         user_builder = ContextItemBuilder().set_role(RoleType.User)
-        if enable_visual_message:
+        if history_draft is not None:
+            # NEKO: N23 reply-history — 绑定本次普通模板真实插槽，在外层延迟图片编码完成后复用相同图片。
+            marker = uuid4().hex
+            slot = dialogue_slot(dialogue, marker)
+            rendered = self._load_prompt(prompt_name, **dict(template_context, dialogue_prompt=slot))
+            history_draft.bind(rendered.split(marker), rows)
+            # 暂存普通 User 的元信息和最终选中图，供现有延迟编码器处理。主循环取得 Hook 结果后才填入历史。
+            user_builder.add_text_content("\n")
+            if len(history_draft.pieces) > 1:
+                for _, _, parts in rows:
+                    for part in parts:
+                        user_builder.add_image_content(part.image_format, part.image_base64)
+            user = user_builder.build()
+        elif enable_visual_message:
             dialogue_marker = uuid4().hex
             template_context["dialogue_prompt"] = dialogue_marker
             prefix, suffix = self._load_prompt(prompt_name, **template_context).split(dialogue_marker)
             pending_text = prefix
-            history_by_id = {
-                message.message_id: message
-                for message in chat_history
-                if isinstance(message, ContentContextMessage) and message.message_id
-            }
             history_started = False
-            for message_index, message in enumerate(chat_history):
-                if not isinstance(message, ContentContextMessage):
-                    continue
-                history_line = self._render_reply_history_line(message, history_by_id)
-                if not history_line:
-                    continue
+            for _, history_line, image_parts in rows:
                 pending_text += ("\n" if history_started else "") + history_line
                 history_started = True
-                image_parts = visual_parts.get(message_index, [])
                 if image_parts:
                     # 在历史发言处插入图片，模板后半段的回复指令始终保持在最后。
                     user_builder.add_text_content(pending_text)
@@ -200,11 +214,12 @@ class ChatReplyPromptMixin:
                     for part in image_parts:
                         user_builder.add_image_content(part.image_format, part.image_base64)
             user_builder.add_text_content(pending_text + suffix)
+            user = user_builder.build()
         else:
-            user_builder.add_text_content(self._load_prompt(prompt_name, **template_context))
+            user = user_builder.add_text_content(self._load_prompt(prompt_name, **dict(template_context, dialogue_prompt=dialogue))).build()
         items = [
             ContextItemBuilder().set_role(RoleType.System).add_text_content(system_prompt).build(),
-            user_builder.build(),
+            user,
         ]
         return items
 
@@ -335,7 +350,6 @@ class ChatReplyPromptMixin:
             # 线上动态注入会把回复带向套用句式模板、变书面。Mai Replier 路径跳过该块。
             "expression_habits_block": "" if mai_replier else expression_habits.strip(),
             "extra_info_block": self._build_reply_extra_info_block(reply_requirements),
-            "dialogue_prompt": self._build_reply_dialogue_block(chat_history),
             "time_block": f"当前时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "reply_target_block": reply_target_block,
             "planner_reasoning": combined_reference,
@@ -430,24 +444,6 @@ class ChatReplyPromptMixin:
         if references:
             return f"现在{sender_name}{reference_text} 说：{target_content} 引起了你的注意"
         return f"现在{sender_name}说的：{target_content} 引起了你的注意"
-
-    def _build_reply_dialogue_block(self, chat_history: List[LLMContextMessage]) -> str:
-        """把聊天历史渲染为可读文本块。"""
-
-        lines: List[str] = []
-        history_by_id = {
-            message.message_id: message
-            for message in chat_history
-            if isinstance(message, ContentContextMessage) and message.message_id
-        }
-
-        for message in chat_history:
-            # 复用普通上下文的可见文本渲染，只调整聊天回复模式的时间与说话人外层格式。
-            history_line = self._render_reply_history_line(message, history_by_id)
-            if history_line:
-                lines.append(history_line)
-
-        return "\n".join(lines)
 
     def _render_reply_history_line(
         self,

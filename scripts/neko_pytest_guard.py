@@ -19,6 +19,7 @@ REQUIRED = {
     "pytests/test_schedule_storage.py",
     "pytests/neko/test_bounded_steering.py",
     "pytests/neko/test_reply_contracts.py",
+    "pytests/neko/test_reply_history.py",
     "pytests/neko/test_life_compaction.py",
     "pytests/neko/test_source_policy.py",
     "pytests/neko/test_plugin_bridge.py",

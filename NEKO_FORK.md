@@ -15,7 +15,7 @@
 | --- | --- |
 | 上游基线 | [正式 v1.4.6](https://github.com/Mai-with-u/MaiBot/releases/tag/v1.4.6)／`d531b7eac5686f42bd63ea08fcb462a33c85981c`，从维护 `082f5df16` 双亲合并 |
 | 最近已部署业务修订 | 上次登记仍为1.4.5／`cce16e43eff0f6e9516d650bf55ffafe74c86d4e`。本次不接生产、不迁移数据库 |
-| 目标依赖及来源 | SDK 2.23.0、Dashboard 1.10.6；锁仅更新宿主与Dashboard。清单纳管53个Python源、三语子代理模板和锁，共57项 |
+| 目标依赖及来源 | SDK 2.23.0、Dashboard 1.10.6；锁仅更新宿主与Dashboard。清单纳管56个Python源、三语子代理模板和锁，共60项 |
 | 目标数据及前端 | 主库52→55、A_memorix元库31；主配置8.16.37、模型任务1.17.28、公共目录3.0.0。维护 Dashboard 用冻结锁构建1.10.6（323资源），不复用已部署版 |
 | 适配器 | SnowLuma 1.3.1／`88e92a8` 无升级要求；N17 仍撤回，独立 Telegram 适配器及插件不随宿主发布 |
 
@@ -26,7 +26,7 @@
 - **新增 N21/N22**：工具末尾加载默认关闭，普通及Focus只在原授权及已发现范围加入顶层声明；显式启用沿上游末尾载入。emoji显式任务/目标/超时保留，否则替换决策走planner；工具结果压缩、启发式印象、WebUI AI搜索仍用原utils，避免升级替换实例模型选择。
 - 采用上游群聊调度/频率及提示结构；群/私Token上限均默认关闭，仅显示的后验输入量可触发裁切，不是计费硬限。保留原条数窗口（可超出上游30–300）、Focus无执行快照时仍至多8批。轻量私聊、回复缓存和旧退避等已移除选项：若旧实例显式依赖，切换前停下来确认，不默认改用另一模型或行为。
 - **生产迁移硬前提**：用最新匹配副本只读核非空计数：`person_info.memory_points`、`person_info.name_reason`、`individuals.name_reason`及`individuals.profile_sources_json`内各来源的`name_reason`（按实际schema）。空数组/空白与有效资料区分；结构无法解析也停止。任一含有效资料，先由用户决定保留方式并验证，再允许52→55；不输出资料、不送模型、不自动导入或合并身份。本次没有读取实例或执行迁移。
-- Replyer 历史、引用、图片及要求的Item组织已变。精确发送回执和固定TTS合成回归不证明线上TTS提示适配或GIF历史注入；部署前按插件实际消费点定向核实。插件未改动。
+- Replyer 历史、引用、图片及要求采用新版模板。N23 为普通 Replyer 提供可选择订阅的历史身份接口；与配套消费者按实际发送链定向核验，固定 TTS 合成回归不能代替这项验证。
 
 **维护导航**：[发布流程](#发布与迁移边界) · [验证/CI](#本地验证与-ci) · [上游同步](#分支与上游同步) · [补丁台账](#升级补丁台账稳定id) · [Focus边界](#已确认行为选择及迁移边界) · [Host认证](#host-认证与运维接口合同) · [文件能力](#文件能力的选择) · [历史证据](docs/NEKO_HISTORY.md)。
 
@@ -174,6 +174,13 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 | N20 schedule-opt-in | 官方日程显式启用：`src/config/official_configs.py`、`src/maisaka/builtin_tool/__init__.py`、`src/services/schedules/{service,repository}.py` | `pytests/neko/test_schedule_opt_in.py`；默认不发现/加载/写入/投递，保留旧事项 | 上游提供等价默认关闭能力开关，并明确选择迁移日程职责 |
 | N21 tool-discovery | 授权工具非尾载发现：`src/maisaka/{reasoning_engine,runtime,focus/tools,builtin_tool/tool_search}.py`、`src/config/official_configs.py` | `pytests/maisaka/test_tool_discovery.py` 普通/Focus两模式、下一轮切换、成员路由 | 上游提供等价的授权内发现声明并保显式选择 |
 | N22 model-routing | 原任务槽及职责：`src/config/{model_configs,default_model_config}.py`、`src/services/service_task_resolver.py`、`src/emoji_system/emoji_manager.py`、`src/maisaka/{tool_result_condenser,memory/heuristic_injector}.py`、`src/webui/services/ai_search_agent.py`和Dashboard模型任务 | 模型模板迁移、`pytests/plugin_runtime/test_llm_capability_model_args.py`、工具压缩/前端任务回归 | 上游恢复同等路由或用户另行选择新模型职责及迁移 |
+| N23 reply-history | 普通 Replyer 渲染前的逐行身份及有限展示动作：`src/chat/replyer/{maisaka_generator_base,reply_prompt,reply_history}.py`、`src/maisaka/chat_loop_service.py`、`src/plugin_runtime/host/hook_dispatcher.py` | `pytests/neko/test_reply_history.py`；消费者单独验证真实回执、派生索引和名单 | 上游提供等价的本次渲染身份与局部展示接口且消费者迁移完成 |
+
+**N23 `maisaka.replyer.prepare_history` v1**：实际模型选定、历史过滤、视觉配额与模板槽确定后，每次 `reply` profile 的正文构建在主事件循环分发一次（含超创意语言）。切换候选/重试重新建句柄；`mai_replier`、`document`、翻译、续写与 Planner 不分发。原 `before_model_request` 仍只收最终 Items 及原参数，无需旧订阅者升级或处理新字段。无插件效果时，普通模板仍是 system + 一条 user。
+
+- 输入仅 `{schema_version:1, session_id, reply_message_id, entries:[{handle,message_id,is_self,pure_voice}]}`；按当前模板完整对话槽实际可见行顺序，以同会话真实 IM 的原始 ID 认领。正文、引文和模板文字均不携带，不从模型文字反推。重号、缺归属或仅在截断/转义等特殊格式中显示的内容不认领。重复对话槽只报告一次身份且不扩大视觉配额。
+- 阻塞处理器可返回 `action="continue"`、`custom_result={schema_version:1, hide:[handle,...], references:[{handle,text},...]}`，动作均可省。宿主只接受本次句柄：`hide` 仅对本人的单一 VoiceComponent **历史行**有效；TTS 消费者还须验证自己的同会话成功回执。目标块、引用和独立要求不删除。`references` 只允许非自身、非目标行；目标沿旧最终 Hook，宿主将有效参考作为独立的不可信资料 Item 放在最终用户模板之前，不伪装成用户原话或改变原始图片。
+- 宿主以本次原始消息 ID＋参考文字去重，单份不超过6000字符；一轮最多12份、合计12000字符，插件原有更小配额及开关仍生效。禁止改写输入或中止回复；失败处理器、未知版本和越权动作不影响原历史。没有跨请求表、写库或自动重放。
 
 N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planner，退出后继承上下文失效；不改等待参数、总期限、重试/切模型策略，不让摘要/Replyer覆盖Planner进度。前端复用现有elapsed组件，不增加服务端心跳。
 

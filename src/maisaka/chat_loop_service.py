@@ -374,6 +374,21 @@ def register_maisaka_hook_specs(registry: HookSpecRegistry) -> List[HookSpec]:
                 allow_abort=True,
                 allow_kwargs_mutation=True,
             ),
+            # NEKO: N23 reply-history — 仅按已展示的真实 IM 句柄接收局部展示建议，不允许覆盖输入或中止回复。
+            HookSpec(
+                name="maisaka.replyer.prepare_history",
+                description="普通 Replyer 在渲染历史前提供本次可见 IM 的身份；仅消费 custom_result 中的 hide/references。",
+                parameters_schema=build_object_schema({
+                    "schema_version": {"type": "integer", "const": 1},
+                    "session_id": {"type": "string"},
+                    "reply_message_id": {"type": "string"},
+                    "entries": {"type": "array", "items": build_object_schema({
+                        "handle": {"type": "string"}, "message_id": {"type": "string"},
+                        "is_self": {"type": "boolean"}, "pure_voice": {"type": "boolean"},
+                    }, required=["handle", "message_id", "is_self", "pure_voice"])},
+                }, required=["schema_version", "session_id", "reply_message_id", "entries"]),
+                default_timeout_ms=6000, allow_abort=False, allow_kwargs_mutation=False,
+            ),
             HookSpec(
                 name="maisaka.replyer.before_model_request",
                 description="在 Maisaka replyer 构造完本次模型请求后触发，可改写 Context Items，或以 action=abort 取消本次回复并通过 custom_result.reason 说明原因。",

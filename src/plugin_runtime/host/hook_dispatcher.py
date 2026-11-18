@@ -607,7 +607,10 @@ class HookDispatcher:
             dispatch_result: 当前聚合结果对象。
         """
 
-        if execution_result.custom_result is not None:
+        # NEKO: N23 reply-history — 失败处理器的返回不能成为展示动作；既有 Hook 保留原附加结果语义。
+        if execution_result.custom_result is not None and (
+            execution_result.success or dispatch_result.hook_name != "maisaka.replyer.prepare_history"
+        ):
             dispatch_result.custom_results.append(execution_result.custom_result)
 
         if not execution_result.success:
