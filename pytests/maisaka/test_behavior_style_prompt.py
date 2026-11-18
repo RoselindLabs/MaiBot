@@ -4,6 +4,7 @@ from src.chat.replyer.maisaka_generator_base import BaseMaisakaReplyGenerator
 from src.common.i18n import use_locale
 from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
+from src.llm_models.payload_content.context_item import get_item_text
 from src.maisaka.chat_loop_service import MaisakaChatLoopService
 from src.maisaka.scenes.factory import get_scene
 
@@ -32,7 +33,7 @@ def test_replyer_keeps_using_personality(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.parametrize("is_group_chat", [True, False])
-@pytest.mark.parametrize("prompt_name", ["maisaka_chat", "maisaka_chat_focus", "maisaka_replyer"])
+@pytest.mark.parametrize("prompt_name", ["planner_default", "planner_focus", "maisaka_replyer"])
 @pytest.mark.parametrize(
     ("locale", "heading"),
     [("zh-CN", "注意力漂移风格："), ("en-US", "Attention drift style:"), ("ja-JP", "注意ドリフトスタイル：")],
@@ -49,8 +50,13 @@ def test_attention_drift_follows_live_config_in_planner_and_replyer(
         monkeypatch.setattr(generator, "_select_reply_style", lambda: "测试回复风格")
 
         def build_prompt() -> str:
-            return generator._build_system_prompt(None, "测试回复原因", stream_id="test-session")
+            items = generator._build_reply_request_messages(
+                chat_history=[], reply_message=None, reply_reason="测试回复原因", stream_id="test-session",
+            )
+            return get_item_text(items[0])
     else:
+        if prompt_name == "planner_default":
+            prompt_name += "_group" if is_group_chat else "_private"
         service = MaisakaChatLoopService(is_group_chat=is_group_chat)
         monkeypatch.setattr(service, "_get_chat_prompt_name", lambda: prompt_name)
         build_prompt = service._build_chat_system_prompt
@@ -78,7 +84,7 @@ def test_attention_drift_follows_live_config_in_planner_and_replyer(
         assert build_prompt() == baseline
 
 
-@pytest.mark.parametrize("prompt_name", ["maisaka_chat", "maisaka_chat_focus"])
+@pytest.mark.parametrize("prompt_name", ["planner_default_group", "planner_default_private", "planner_focus"])
 @pytest.mark.parametrize("locale", ["zh-CN", "en-US", "ja-JP"])
 def test_planner_personality_precedes_behavior_style(
     monkeypatch: pytest.MonkeyPatch, prompt_name: str, locale: str

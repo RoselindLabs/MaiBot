@@ -58,6 +58,7 @@ async def handle_tool(
     matched_tool_names = [tool_spec.name for tool_spec in matched_tool_specs]
     newly_discovered_tool_names = tool_ctx.runtime.discover_deferred_tools(matched_tool_names)
 
+    # NEKO: N21 tool-discovery — non-tail mode advertises names without duplicating schemas in tool results.
     if not tool_ctx.runtime._tool_search_tail_loading:
         structured_content = {
             "query": raw_query.strip(),

@@ -8,13 +8,14 @@ import pytest
 from src.config.config import global_config
 from src.config.official_configs import CapabilitiesConfig, ExperimentalConfig
 from src.maisaka.builtin_tool import get_all_builtin_tool_specs
+from src.services.schedules.repository import read_schedule_items
 from src.services.schedules.service import ScheduleService
 
 
 def test_existing_configuration_does_not_opt_into_new_actions(monkeypatch):
     assert not CapabilitiesConfig.model_validate({"files": False}).chat_schedules
     experimental = ExperimentalConfig.model_validate({"focus_mode": True})
-    assert experimental.lightweight_private_chats == []
+    assert "lightweight_private_chats" not in ExperimentalConfig.model_fields
     assert not experimental.tool_search_tail_loading
     monkeypatch.setattr(global_config.capabilities, "chat_schedules", False)
     assert "schedule" not in {spec.name for spec in get_all_builtin_tool_specs()}
@@ -29,8 +30,14 @@ async def test_disabled_scheduler_preserves_file_and_cannot_dispatch(tmp_path, m
     # Even unrecognised retained data must not be loaded, repaired or replayed.
     retained = b'{"retained": "synthetic old schedule"}'
     path.write_bytes(retained)
-    service = ScheduleService(path)
+    directory = tmp_path / "schedules"
+    directory.mkdir()
+    snapshot = directory / "room.json"
+    snapshot.write_bytes(b"not a schedule")
+    service = ScheduleService(directory, legacy_path=path)
     await service.start()
+    assert read_schedule_items(directory) == []
+    assert snapshot.read_bytes() == b"not a schedule"
     assert service._store is None and service._worker is None
     dispatch = AsyncMock()
     monkeypatch.setattr(service, "dispatch", dispatch)

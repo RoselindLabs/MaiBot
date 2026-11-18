@@ -75,10 +75,10 @@ BOT_CONFIG_PATH: Path = (CONFIG_DIR / "bot_config.toml").resolve().absolute()
 MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute()
 LEGACY_ENV_PATH: Path = (PROJECT_ROOT / ".env").resolve().absolute()
 MMC_VERSION: str = read_project_version(PROJECT_ROOT)
-# NEKO: N20 schedule-opt-in — 新定时能力沿模板迁移补齐默认关闭，不新增升级Hook。
-CONFIG_VERSION: str = "8.16.27"
-# NEKO: N08 gemini-fallback — 避开上游1.17.26撞号，既有模板迁移补齐旧默认及图片限制字段。
-MODEL_CONFIG_VERSION: str = "1.17.27"
+# NEKO: N20 schedule-opt-in — advance the fork schema separately from the official template.
+CONFIG_VERSION: str = "8.16.37"
+# NEKO: N08 gemini-fallback — migrate existing task-local fallback references without a version collision.
+MODEL_CONFIG_VERSION: str = "1.17.28"
 
 logger = get_logger("config")
 

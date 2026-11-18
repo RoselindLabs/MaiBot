@@ -11,6 +11,12 @@ _collected = set()
 _completed = set()
 _skipped = []
 REQUIRED = {
+    "pytests/test_host_sessions.py",
+    "pytests/maisaka/test_context_token_limit.py",
+    "pytests/maisaka/test_tool_discovery.py",
+    "pytests/maisaka/test_planner_action_judge.py",
+    "pytests/plugin_runtime/test_llm_capability_model_args.py",
+    "pytests/test_schedule_storage.py",
     "pytests/neko/test_bounded_steering.py",
     "pytests/neko/test_reply_contracts.py",
     "pytests/neko/test_life_compaction.py",

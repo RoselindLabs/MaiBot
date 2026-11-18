@@ -108,6 +108,7 @@ class FocusToolRouter:
     def __init__(self, group: FocusGroupRuntime) -> None:
         self.group = group
         self.routes: Dict[str, FocusToolRoute] = {}
+        # NEKO: N21 tool-discovery — snapshot mode per refresh; member variants remain scoped.
         self._tail_loading = False
 
     async def refresh(self) -> List[ToolSpec]:
@@ -188,6 +189,7 @@ class FocusToolRouter:
 
     def definitions(self) -> List[Dict[str, Any]]:
         definitions = []
+        # NEKO: N21 tool-discovery — only expose currently available routes discovered by their members.
         for name, route in self.routes.items():
             if self.is_default_visible(route.spec) or (
                 not self._tail_loading and any(

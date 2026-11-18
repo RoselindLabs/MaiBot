@@ -895,6 +895,7 @@ class EmojiManager:
         emoji_replace_prompt = await prompt_manager.render_prompt(emoji_replace_prompt_template)
 
         # 替换决策只使用文字描述，优先使用 emoji 任务，未配置时使用 planner。
+        # NEKO: N22 model-routing — use the configured emoji task if present.
         emoji_models = config_manager.get_model_config().model_task_config.emoji.model_list
         replacement_task_name = "emoji" if any(model_name.strip() for model_name in emoji_models) else "planner"
         replacement_client = LLMServiceClient(task_name=replacement_task_name, request_type="emoji")

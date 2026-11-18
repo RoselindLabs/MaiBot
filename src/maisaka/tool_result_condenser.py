@@ -115,6 +115,7 @@ async def condense_tool_result(
             context_message_limit=1,
             system_prompt=TOOL_RESULT_CONDENSER_SYSTEM_PROMPT,
             extra_messages=[task_message],
+            # NEKO: N22 model-routing — retain the existing task, provider order, budget and fallback configuration.
             model_task_name="utils",
             tool_definitions=[],
             include_parent_context=False,

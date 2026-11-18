@@ -20,6 +20,7 @@ from .authentication import HostCredentials
 
 
 logger = get_logger("host.sessions")
+# NEKO: N19 host-origin — retain server-side absolute expiry across process restarts.
 _SESSION_SECONDS = 8 * 60 * 60
 _TICKET_SECONDS = 60
 _MAX_TICKETS = 64

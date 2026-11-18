@@ -14,6 +14,12 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
     "pytests/neko",
+    "pytests/test_host_sessions.py",
+    "pytests/maisaka/test_context_token_limit.py",
+    "pytests/maisaka/test_tool_discovery.py",
+    "pytests/maisaka/test_planner_action_judge.py",
+    "pytests/plugin_runtime/test_llm_capability_model_args.py",
+    "pytests/test_schedule_storage.py",
     "pytests/maisaka/test_context_compaction.py",
     "pytests/maisaka/test_focus_group_runtime.py",
     "pytests/maisaka/test_replyer_expression_selection.py",

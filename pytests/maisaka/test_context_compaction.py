@@ -93,7 +93,8 @@ def snapshot(history=()):
 def runtime(history):
     return SimpleNamespace(
         _chat_history=history,
-        _chat_loop_service=SimpleNamespace(planner_request_snapshot=snapshot(history)),
+        _chat_loop_service=SimpleNamespace(planner_request_snapshot=snapshot(history), last_planner_prompt_tokens=0),
+        _max_context_tokens=None,
         _max_context_size=2,
         session_id="test-compaction",
         log_prefix="测试群",

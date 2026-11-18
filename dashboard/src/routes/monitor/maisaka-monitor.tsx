@@ -254,6 +254,7 @@ function StageStatusPanel({
             <InspectorToggleButton view="stats" />
             <InspectorToggleButton view="context" disabled={!sessionId} />
             <InspectorToggleButton view="subagents" />
+            <InspectorToggleButton view="schedules" />
           </>
         }
       />
@@ -985,6 +986,7 @@ function ReplyToolArguments({
     avoid: '避免',
   }
   const chatAnalysisText = typeof args.chat_anlyze === 'string' ? args.chat_anlyze.trim() : ''
+  const replyStyle = typeof args.reply_style === 'string' ? args.reply_style.trim() : ''
   const handledArguments = new Set([
     'msg_id',
     'attach_at',
@@ -1038,9 +1040,15 @@ function ReplyToolArguments({
         {!tool.status && <ToolFullJsonBlock tool={tool} />}
       </div>
       {!tool.status && <ReplySentLine tool={tool} />}
-      {(args.expression_intent != null || chatAnalysisText) && (
+      {(args.expression_intent != null || chatAnalysisText || replyStyle) && (
         <FoldSection title="回复依据" open={basisOpen} onOpenChange={setBasisOpen}>
           <div className="space-y-4 pt-3 leading-6">
+            {replyStyle && (
+              <div className="space-y-1">
+                <div className="text-muted-foreground">表达力度</div>
+                <p className="leading-6 break-words whitespace-pre-wrap">{replyStyle}</p>
+              </div>
+            )}
             {chatAnalysisText && (
               <div className="space-y-1">
                 <div className="text-muted-foreground">对话分析</div>
@@ -2844,7 +2852,7 @@ const MonitorTimeline = memo(function MonitorTimeline({
           )}
         </AnimatePresence>
       </DataPanel>
-      {/* 统计、当前上下文与子代理共用的检查器右侧栏 */}
+      {/* 统计、当前上下文、子代理与事项共用的检查器右侧栏 */}
       <InspectorPanel stats={stats} sessionId={selectedSession} />
     </div>
     </ImageGalleryProvider>

@@ -80,7 +80,7 @@ def engine(monkeypatch) -> MaisakaReasoningEngine:
         _consecutive_wait_count=0,
         _enter_stop_state=Mock(),
         _has_pending_messages=lambda: False,
-        build_retro_reply_history=AsyncMock(return_value=[]),
+        build_reply_history=AsyncMock(return_value=[]),
         _update_stage_status=Mock(),
         expand_message_id_aliases=lambda args: args,
         is_action_tool_currently_available=lambda name: name != "reply",
@@ -310,7 +310,7 @@ def test_prompt_and_tail_reminder_follow_experimental_switch(monkeypatch, locale
     with use_locale(locale):
         prompt = service._build_chat_system_prompt()
         reminder = service._build_planner_final_user_reminder()
-    assert service._get_chat_prompt_name() == ("maisaka_chat_passive" if enabled else "maisaka_chat")
+    assert service._get_chat_prompt_name() == ("planner_passive_group" if enabled else "planner_default_group")
     # 1.4.5 参数协议放在工具声明，动作选择放在加载的回合提醒中。
     assert prompt
     assert "set_reply_options" not in prompt
@@ -357,7 +357,7 @@ def test_focus_prompt_ignores_passive_replyer_switch(monkeypatch, enabled):
     monkeypatch.setattr(global_config.experimental, "passive_replyer", enabled)
     service = FocusChatLoopService(is_group_chat=True)
     service.passive_replyer_override = enabled
-    assert service._get_chat_prompt_name() == "maisaka_chat_focus"
+    assert service._get_chat_prompt_name() == "planner_focus"
     prompt = service._build_chat_system_prompt()
     assert "reply" in prompt and "session_id" in prompt
     assert "set_reply_options" not in prompt
@@ -371,11 +371,11 @@ def test_running_turn_keeps_prompt_and_behavior_when_switch_changes(engine, monk
     service.passive_replyer_override = enabled
     monkeypatch.setattr(global_config.experimental, "passive_replyer", not enabled)
     assert engine.passive_replyer_enabled is enabled
-    assert service._get_chat_prompt_name() == ("maisaka_chat_passive" if enabled else "maisaka_chat")
+    assert service._get_chat_prompt_name() == ("planner_passive_group" if enabled else "planner_default_group")
     engine._turn_passive_replyer = None
     service.passive_replyer_override = None
     assert engine.passive_replyer_enabled is (not enabled)
-    assert service._get_chat_prompt_name() == ("maisaka_chat" if enabled else "maisaka_chat_passive")
+    assert service._get_chat_prompt_name() == ("planner_default_group" if enabled else "planner_passive_group")
 
 
 @pytest.mark.asyncio

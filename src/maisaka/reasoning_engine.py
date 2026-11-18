@@ -56,7 +56,6 @@ from src.maisaka.builtin_tool import (
     is_builtin_tool_in_action_stage,
 )
 from .chat_loop_service import ChatResponse
-from .lightweight import LIGHTWEIGHT_TOOL_PARAMETERS, build_lightweight_tools, is_lightweight_private_chat
 from .mode_policy import build_consecutive_wait_reminders
 from .reply_supplement import ReplySupplement, generate_reply_supplement
 from .tool_result_condenser import condense_tool_result, should_condense_tool_result
@@ -160,8 +159,6 @@ class PlannerInterruptResult:
 class MaisakaReasoningEngine:
     """负责内部思考、推理与工具执行。"""
 
-    _turn_lightweight_private: bool = False
-
     def __init__(self, runtime: "MaisakaHeartFlowChatting") -> None:
         self._runtime = runtime
         self._last_reasoning_content: str = ""
@@ -172,7 +169,6 @@ class MaisakaReasoningEngine:
         self._internal_pressure_attempted = False
         # NEKO: N15 bounded-steering — 普通Planner打断计数跨请求绑定，决策/回合结束清零。
         self._planner_message_interrupts = 0
-        self._turn_lightweight_private = False
 
     @property
     def passive_replyer_enabled(self) -> bool:
@@ -206,6 +202,7 @@ class MaisakaReasoningEngine:
     async def _run_interruptible_planner(
         self,
         *,
+        deferred_tools_reminder: str = "",
         injected_user_messages: Optional[list[str]] = None,
         tail_user_messages: Optional[list[str]] = None,
         tool_definitions: Optional[list[dict[str, Any]]] = None,
@@ -229,6 +226,7 @@ class MaisakaReasoningEngine:
             planner_task = asyncio.create_task(
                 self._runtime._chat_loop_service.chat_loop_step(
                     self._runtime._chat_history,
+                    deferred_tools_reminder=deferred_tools_reminder,
                     injected_user_messages=injected_user_messages,
                     tail_user_messages=tail_user_messages,
                     tool_definitions=tool_definitions,
@@ -270,13 +268,6 @@ class MaisakaReasoningEngine:
         deferred_tool_specs: list[ToolSpec] = []
         passive_replyer = self.passive_replyer_enabled
         for tool_spec in tool_specs:
-            if self._turn_lightweight_private:
-                if tool_spec.provider_name != "maisaka_builtin" or tool_spec.name == "read_tool_result":
-                    # 扩展工具按需发现；原始结果回查供联网工具返回 result_id 后继续读取。
-                    deferred_tool_specs.append(tool_spec)
-                elif tool_spec.name in LIGHTWEIGHT_TOOL_PARAMETERS:
-                    visible_builtin_tool_specs.append(tool_spec)
-                continue
             if tool_spec.provider_name == "maisaka_builtin":
                 if not is_builtin_tool_in_action_stage(tool_spec, passive_replyer=passive_replyer):
                     continue
@@ -291,6 +282,7 @@ class MaisakaReasoningEngine:
                 continue
             deferred_tool_specs.append(tool_spec)
 
+        # NEKO: N21 tool-discovery — bind discovery mode to the same authorized refresh.
         self._runtime._tool_search_tail_loading = global_config.experimental.tool_search_tail_loading
         self._runtime.update_deferred_tool_specs(deferred_tool_specs)
         selected_history, _ = self._runtime._chat_loop_service.select_llm_context_messages(
@@ -303,10 +295,7 @@ class MaisakaReasoningEngine:
         discovered_deferred_tool_specs = self._runtime.get_discovered_deferred_tool_specs()
         active_specs = [*visible_builtin_tool_specs, *discovered_deferred_tool_specs]
         self._runtime.set_current_action_tool_names([spec.name for spec in active_specs])
-        definitions = (
-            build_lightweight_tools(visible_builtin_tool_specs) if self._turn_lightweight_private
-            else [spec.to_llm_definition() for spec in visible_builtin_tool_specs]
-        )
+        definitions = [spec.to_llm_definition() for spec in visible_builtin_tool_specs]
         if not self._runtime._tool_search_tail_loading:
             definitions.extend(spec.to_llm_definition() for spec in discovered_deferred_tool_specs)
         return (
@@ -319,17 +308,12 @@ class MaisakaReasoningEngine:
         *,
         profile_message: SessionMessage,
         source_messages: list[SessionMessage],
-        deferred_tools_reminder: str,
         round_text: Optional[str] = None,
         context_timings: Optional[Dict[str, float]] = None,
     ) -> list[str]:
         """构造本轮 planner 的一次性注入消息。"""
 
         injected_messages: list[str] = []
-        if deferred_tools_reminder:
-            injected_messages.append(deferred_tools_reminder)
-        if self._turn_lightweight_private:
-            return injected_messages
 
         async def build_heuristic_memory_message() -> str:
             try:
@@ -691,7 +675,7 @@ class MaisakaReasoningEngine:
         self._runtime._update_stage_status("组织上下文", "正在准备：黑话参考", round_text=round_text)
         jargon_started = time.perf_counter()
         try:
-            jargon_reference_message = None if self._turn_lightweight_private else self._refresh_jargon_reference_message()
+            jargon_reference_message = self._refresh_jargon_reference_message()
             if jargon_reference_message is not None:
                 logger.debug(f"{self._runtime.log_prefix} 已刷新黑话参考消息")
         except Exception as exc:
@@ -700,7 +684,6 @@ class MaisakaReasoningEngine:
         injected_user_messages = await self._build_planner_injected_user_messages(
             profile_message=trigger_message,
             source_messages=source_messages,
-            deferred_tools_reminder=deferred_tools_reminder,
             round_text=round_text,
             context_timings=context_timings,
         )
@@ -740,6 +723,7 @@ class MaisakaReasoningEngine:
             # NEKO: N16 planner-progress — ordinary and shared Planner use the same request-local observer.
             from src.llm_models.request_progress import observe_planner
             response = await observe_planner(self._run_interruptible_planner(
+                deferred_tools_reminder=deferred_tools_reminder,
                 injected_user_messages=injected_user_messages or None,
                 tail_user_messages=build_consecutive_wait_reminders(self._runtime._consecutive_wait_count),
                 tool_definitions=action_tool_definitions,
@@ -902,11 +886,12 @@ class MaisakaReasoningEngine:
         """消费触发信号并准备本轮初始消息与触发消息。"""
 
         message_triggered, timeout_triggered, proactive_triggered = self._drain_ready_turn_triggers(queued_trigger)
+        silence_triggered = self._runtime._message_turn_scheduler.consume_silence_trigger()
         silent_reply_frequency = self._runtime._is_reply_frequency_silent()
 
         if (
             self._runtime._agent_state == self._runtime._STATE_WAIT
-            and not (timeout_triggered or proactive_triggered)
+            and not (timeout_triggered or proactive_triggered or silence_triggered)
             and not silent_reply_frequency
             and not (
                 message_triggered
@@ -955,6 +940,16 @@ class MaisakaReasoningEngine:
                 self._runtime._chat_history.append(wait_message)
             elif proactive_logical_turn_id:
                 continuation_logical_turn_id = proactive_logical_turn_id
+        elif silence_triggered:
+            trigger_message = self._runtime.message_cache[-1] if self._runtime.message_cache else None
+            if trigger_message is None:
+                return TurnStartContext([], None, timeout_triggered, proactive_triggered, silent_reply_frequency)
+            self._runtime._enter_running_state()
+            if self._runtime._has_pending_wait_tool_call():
+                wait_message = self._build_wait_completed_message(has_new_messages=False)
+                continuation_logical_turn_id = wait_message.logical_turn_id
+                self._runtime._chat_history.append(wait_message)
+            await self._emit_flow_step("turn.silence", "静默查看触发", "预计消息到达时间已过，概率判定通过，查看当前对话。")
         elif timeout_triggered and self._runtime._has_pending_wait_tool_call():
             trigger_message = self._runtime.message_cache[-1] if self._runtime.message_cache else None
             if trigger_message is None:
@@ -988,6 +983,10 @@ class MaisakaReasoningEngine:
 
         completed_cycle = await self._end_cycle(cycle_detail)
         cycle_end = state.cycle_end
+        if state.response is not None and not state.planner_interrupted and cycle_end.reason not in {
+            "cycle_error", "cancelled",
+        }:
+            self._runtime._message_turn_scheduler.record_planner_run()
         if round_index + 1 >= self._runtime._max_internal_rounds and cycle_end.reason in {
             "continue",
             "tool_continue",
@@ -1068,9 +1067,8 @@ class MaisakaReasoningEngine:
 
                 trace_token = reasoning_trace_id.set(uuid.uuid4().hex)
                 try:
-                    self._turn_lightweight_private = is_lightweight_private_chat(self._runtime.session_id)
-                    self._runtime._chat_loop_service.lightweight_private_override = self._turn_lightweight_private
-                    self._turn_passive_replyer = self._turn_lightweight_private or global_config.experimental.passive_replyer
+                    self._runtime._message_turn_scheduler.start_planner_turn()
+                    self._turn_passive_replyer = global_config.experimental.passive_replyer
                     self._runtime._chat_loop_service.passive_replyer_override = self._turn_passive_replyer
                     self._active_logical_turn_id = turn_start_context.logical_turn_id or uuid.uuid4().hex
                     # NEKO: N04 context-pressure — 新逻辑回合才恢复内部回收机会。
@@ -1151,8 +1149,6 @@ class MaisakaReasoningEngine:
                     self._planner_message_interrupts = 0
                     reasoning_trace_id.reset(trace_token)
                     self._turn_passive_replyer = None
-                    self._turn_lightweight_private = False
-                    self._runtime._chat_loop_service.lightweight_private_override = None
                     self._runtime._chat_loop_service.passive_replyer_override = None
                     self._active_logical_turn_id = None
                     if self._runtime._agent_state == self._runtime._STATE_RUNNING:
@@ -1162,6 +1158,7 @@ class MaisakaReasoningEngine:
                             self._runtime._update_stage_status("等待", "等待后继续思考")
                         else:
                             self._runtime._update_stage_status("空闲", "本轮处理结束")
+                    self._runtime._message_turn_scheduler.finish_planner_turn()
         except asyncio.CancelledError:
             self._runtime._log_internal_loop_cancelled()
             raise
@@ -1547,6 +1544,8 @@ class MaisakaReasoningEngine:
         process_result = process_chat_history_after_cycle(
             self._runtime._chat_history,
             max_context_size=self._runtime._max_context_size,
+            max_context_tokens=self._runtime._max_context_tokens,
+            prompt_tokens=self._runtime._chat_loop_service.last_planner_prompt_tokens,
             pending_call_ids=self._runtime._get_pending_wait_tool_call_ids(),
             consume_references=consume_references,
         )
@@ -1598,6 +1597,7 @@ class MaisakaReasoningEngine:
         self._runtime._chat_history = final_history
         if process_result.removed_messages:
             self._runtime._chat_loop_service.planner_request_snapshot = None
+            self._runtime._chat_loop_service.last_planner_prompt_tokens = 0
         if trimmed_chat_count <= 0:
             return
         # 常规收尾不单独展示，仅在确实裁切上下文后记录附加处理。
@@ -2355,11 +2355,6 @@ class MaisakaReasoningEngine:
                     tool_name="reply", success=False,
                     error_message="被动式 replyer 不调用 reply；决定发言时请直接输出回复指导，不要调用工具。",
                 )
-            elif self._turn_lightweight_private and is_unexpanded_tool:
-                result = ToolExecutionResult(
-                    tool_name=invocation.tool_name, success=False,
-                    error_message="轻量模式未提供该工具；请使用当前可用工具或输出回复指导。",
-                )
             else:
                 result = await self._runtime._tool_registry.invoke(invocation, execution_context)
             tool_ended_at = time.time()
@@ -2371,10 +2366,7 @@ class MaisakaReasoningEngine:
                     reply_pause = after_reply
                     reply_pause_call_id = tool_call.call_id
                     reply_wait_seconds = result.metadata["wait_seconds"]
-            if is_unexpanded_tool and not result.success and (
-                not self._turn_lightweight_private
-                or invocation.tool_name in self._runtime.deferred_tool_specs_by_name
-            ):
+            if is_unexpanded_tool and not result.success:
                 result = self._append_deferred_tool_parameter_hint(result)
             tool_duration_ms = (tool_ended_at - tool_started_at) * 1000
             await self._record_tool_execution_effects(
@@ -2385,7 +2377,7 @@ class MaisakaReasoningEngine:
             # 超长结果先交给子代理按当前意图整理，Planner 历史里只留整理后的结论
             condensed_content: str | None = None
             raw_history_content = result.get_history_content()
-            if not self._turn_lightweight_private and global_config.capabilities.tool_result_condense and should_condense_tool_result(
+            if global_config.capabilities.tool_result_condense and should_condense_tool_result(
                 invocation.tool_name,
                 raw_history_content,
                 success=result.success,

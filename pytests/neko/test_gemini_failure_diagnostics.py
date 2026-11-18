@@ -892,7 +892,7 @@ async def test_shared_catalog_change_protects_other_bots_custom_reference(fallba
     assert any("Gemini备用模型" in error for error in missing_references(other))
 
 
-@pytest.mark.parametrize("old_version", ["1.17.25", "1.17.26"])
+@pytest.mark.parametrize("old_version", ["1.17.25", "1.17.26", "1.17.27"])
 def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_path, monkeypatch, old_version):
     import tomlkit
     import tomllib
@@ -910,7 +910,7 @@ def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_
         if name != "web_search":
             assert task.pop("gemini_fallback_mode") == "legacy_grok"
             assert task.pop("gemini_fallback_model") == ""
-    assert MODEL_CONFIG_VERSION == "1.17.27"
+    assert MODEL_CONFIG_VERSION == "1.17.28"
     data["inner"]["version"] = old_version
     data["model_task_config"]["planner"]["hard_timeout"] = 83
     path.write_text(tomlkit.dumps(data), encoding="utf-8")
@@ -937,17 +937,24 @@ def test_fork_colliding_schema_upgrade_preserves_custom_and_adds_image_defaults(
     from src.config.shared_models import extract_bot_model_settings
 
     h = fallback_config_workspace
-    h.data["inner"]["version"] = "1.17.26"
+    h.data["inner"]["version"] = "1.17.27"
+    h.data["model_task_config"]["emoji"] = {
+        "model_list": ["primary", "backup"],
+        "gemini_fallback_mode": "custom",
+        "gemini_fallback_model": "backup",
+    }
     h.data["model_task_config"]["planner"].update(gemini_fallback_mode="custom", gemini_fallback_model="backup")
     h.paths[0].write_text(tomlkit.dumps(extract_bot_model_settings(h.data)), encoding="utf-8")
     original_catalog = h.catalog.read_bytes()
     loaded, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
     assert updated
     task = loaded.model_task_config.planner
+    assert loaded.model_task_config.emoji.model_list == ["primary", "backup"]
+    assert loaded.model_task_config.emoji.gemini_fallback_model == "backup"
     assert (task.gemini_fallback_mode, task.gemini_fallback_model, task.hard_timeout) == ("custom", "backup", 83)
     assert loaded.models[0].max_images == 0
     assert (loaded.models[0].image_min_side, loaded.models[0].image_max_side) == (1, 8000)
-    assert tomllib.loads(h.paths[0].read_text(encoding="utf-8"))["inner"]["version"] == "1.17.27"
+    assert tomllib.loads(h.paths[0].read_text(encoding="utf-8"))["inner"]["version"] == "1.17.28"
     assert h.catalog.read_bytes() == original_catalog
     _, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
     assert not updated

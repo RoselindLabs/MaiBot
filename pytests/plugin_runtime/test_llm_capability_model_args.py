@@ -87,6 +87,29 @@ async def test_legacy_model_task_alias_remains_compatible(captured_requests: Lis
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("field_name", ["task_name", "model"])
+@pytest.mark.parametrize("with_tools", [False, True])
+@pytest.mark.parametrize("configured", [False, True])
+async def test_emoji_task_routes_to_configured_task_or_planner(
+    field_name: str, with_tools: bool, captured_requests: List[Any], configured, monkeypatch
+) -> None:
+    """显式 emoji 分配优先，否则旧 SDK 别名使用 planner。"""
+    from src.config.model_configs import TaskConfig
+
+    monkeypatch.setitem(AVAILABLE_TASKS, "emoji", TaskConfig(model_list=["custom"] if configured else []))
+    manager = RuntimeCoreCapabilityMixin()
+    args = {"prompt": "hi", field_name: "emoji"}
+    if with_tools:
+        result = await manager._cap_llm_generate_with_tools("demo.plugin", "llm.generate_with_tools", args)
+    else:
+        result = await manager._cap_llm_generate("demo.plugin", "llm.generate", args)
+
+    assert result["success"] is True
+    assert captured_requests[0].task_name == ("emoji" if configured else "planner")
+    assert captured_requests[0].model_name is None
+
+
+@pytest.mark.asyncio
 async def test_explicit_task_disambiguates_colliding_model_name(captured_requests: List[Any]) -> None:
     """新版协议中即使模型与任务同名，model 也应表示具体模型。"""
     manager = RuntimeCoreCapabilityMixin()

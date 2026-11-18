@@ -213,6 +213,7 @@ class ChatServices:
         self._chat_history = [_history("只属于 " + sid)]
         self._agent_state = "stop"
         self._max_context_size = 10
+        self._max_context_tokens = None
         self.discovered_tool_names = set()
         self.deferred_tool_specs_by_name = {}
         self._update_stage_status = Mock()

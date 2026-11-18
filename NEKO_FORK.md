@@ -9,20 +9,24 @@
 <a id="143-当前维护状态2026-11-12整理"></a>
 <a id="当前维护状态"></a>
 <a id="145-源码集成状态2026-11-15未部署"></a>
-## 1.4.5 当前维护状态（2026-11-15已上线）
-
-本节为当前维护依据；后文旧SHA、来源数量和配置版本仅是当批记录，不覆盖本表。
-源码集成后已获独立上线授权并完成实际切换；下面区分已部署业务与后续纯文档HEAD，不为文档补部署。
+## 1.4.6 源码集成状态（2026-11-18，未部署）
 
 | 边界 | 当前依据 |
 | --- | --- |
-| 上游基线 | 正式v1.4.5／`478f671e64467121fd3e39205c8d3507b5ce0bd6`，包含1.4.4及启动路径修复 |
-| 最近已部署业务修订 | `cce16e43eff0f6e9516d650bf55ffafe74c86d4e`，15日Host及匹配Dashboard上线，随后适配器标准热更；文档HEAD前移不构成新业务发布 |
-| 依赖与数据 | SDK2.23.0／Dashboard1.10.5，定向更新`uv.lock`；主库52、A_memorix元库31。主配置8.16.27、模型任务配置1.17.27、公共模型目录3.0.0；迁移已完成 |
-| 来源登记 | `neko-patches.json`纳管43个Python源、3语提示和锁，共47项；已部署登记及实际源hash匹配 |
-| Dashboard | 同业务源码构建1.10.5／270资源，已部署；实际首页字节匹配制品 |
-| 配套QQ适配器 | [SnowLuma维护fork](https://github.com/RoselindLabs/maibot-snowluma-adapter)，1.3.1／`88e92a8`，Host就绪后热更，新加载及认证success通过；保原插件ID |
-| Telegram | Host N17候选已撤回且未上线；命令后缀修复转[独立适配器fork](https://github.com/RoselindLabs/maibot-telegram-adapter)，不重新加入宿主补丁集合 |
+| 上游基线 | [正式 v1.4.6](https://github.com/Mai-with-u/MaiBot/releases/tag/v1.4.6)／`d531b7eac5686f42bd63ea08fcb462a33c85981c`，从维护 `082f5df16` 双亲合并 |
+| 最近已部署业务修订 | 上次登记仍为1.4.5／`cce16e43eff0f6e9516d650bf55ffafe74c86d4e`。本次不接生产、不迁移数据库 |
+| 目标依赖及来源 | SDK 2.23.0、Dashboard 1.10.6；锁仅更新宿主与Dashboard。清单纳管53个Python源、三语子代理模板和锁，共57项 |
+| 目标数据及前端 | 主库52→55、A_memorix元库31；主配置8.16.37、模型任务1.17.28、公共目录3.0.0。维护 Dashboard 用冻结锁构建1.10.6（323资源），不复用已部署版 |
+| 适配器 | SnowLuma 1.3.1／`88e92a8` 无升级要求；N17 仍撤回，独立 Telegram 适配器及插件不随宿主发布 |
+
+### 1.4.6 合并决定
+
+- **keep** N01 私聊/自身身份、N02 发送分段及纯语音回执、N03 表达整链20秒、N04 严格摘要/原子压力回收、N05 opt-in 可信身份、N06 uv来源、N07 脱敏诊断、N10 GIF剩余边界、N13 自身回传投影、N18 不可变共享子代理归属。各入口经对应合同核对。
+- **port** N08 模型配置升级、N09 媒体运输（32MiB常量已由官方吸收，删重复维护块，保协商/还原帧上限）、N11 真实reply/wait schema补判及10秒请求期限、N12 三语模板移入`main/agent`、N14 锁/门禁、N15 普通群私仍须显式开启打断、N16 新请求构造中的局部进度、N19 服务端8小时绝对过期及撤销、N20 新日程分库/桌宠及WebUI读取在关闭时均不触碰数据。N17 **retired**，不复活。
+- **新增 N21/N22**：工具末尾加载默认关闭，普通及Focus只在原授权及已发现范围加入顶层声明；显式启用沿上游末尾载入。emoji显式任务/目标/超时保留，否则替换决策走planner；工具结果压缩、启发式印象、WebUI AI搜索仍用原utils，避免升级替换实例模型选择。
+- 采用上游群聊调度/频率及提示结构；群/私Token上限均默认关闭，仅显示的后验输入量可触发裁切，不是计费硬限。保留原条数窗口（可超出上游30–300）、Focus无执行快照时仍至多8批。轻量私聊、回复缓存和旧退避等已移除选项：若旧实例显式依赖，切换前停下来确认，不默认改用另一模型或行为。
+- **生产迁移硬前提**：用最新匹配副本只读核非空计数：`person_info.memory_points`、`person_info.name_reason`、`individuals.name_reason`及`individuals.profile_sources_json`内各来源的`name_reason`（按实际schema）。空数组/空白与有效资料区分；结构无法解析也停止。任一含有效资料，先由用户决定保留方式并验证，再允许52→55；不输出资料、不送模型、不自动导入或合并身份。本次没有读取实例或执行迁移。
+- Replyer 历史、引用、图片及要求的Item组织已变。精确发送回执和固定TTS合成回归不证明线上TTS提示适配或GIF历史注入；部署前按插件实际消费点定向核实。插件未改动。
 
 **维护导航**：[发布流程](#发布与迁移边界) · [验证/CI](#本地验证与-ci) · [上游同步](#分支与上游同步) · [补丁台账](#升级补丁台账稳定id) · [Focus边界](#已确认行为选择及迁移边界) · [Host认证](#host-认证与运维接口合同) · [文件能力](#文件能力的选择) · [历史证据](docs/NEKO_HISTORY.md)。
 
@@ -77,7 +81,7 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 
 ### 本次逐项集成决定
 
-此旧入口指1.4.3批次，见[当时keep/port记录](docs/NEKO_HISTORY.md#decisions-143)；当前取舍见[1.4.5](#145-已授权的集成取舍)。
+此旧入口指1.4.3批次，见[当时keep/port记录](docs/NEKO_HISTORY.md#decisions-143)；当前取舍见[1.4.6](#146-合并决定)。
 
 ### 已确认行为选择及迁移边界
 
@@ -145,7 +149,7 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 同文件允许多个ID；`uv.lock`仅走原字节hash校验，Dashboard沿独立制品合同。
 原门禁继续验证清单全部hash及上游`src`/`prompts`差异集合，不机械要求diff每行与标记配对；N12模板也纳入摘要，Dashboard沿独立前端验证与制品合同。
 逐ID核对维护标记、实现及测试入口；hash只能检测漂移，不能证明行为。
-当前成功证明见[发布记录](docs/NEKO_HISTORY.md#release-145)；纯文档核对不重跑全量行为测试，历史数量不当当前结果。
+上次部署证明见[发布记录](docs/NEKO_HISTORY.md#release-145)；纯文档核对不重跑全量行为测试，历史数量不当当前结果。
 
 | ID | 行为与合并入口 | 必须保留的验证 | 可撤销条件 |
 | --- | --- | --- | --- |
@@ -157,17 +161,19 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 | N06 update-source | uv来源错误格式兼容：`src/common/self_update.py` | `pytests/neko/test_release_1319.py::test_update_index_attribution_accepts_reviewed_uv_error_formats`及`pytests/startup_test/test_self_update_dependency_sources.py` | 上游支持新旧错误格式且仍精确绑定索引 |
 | N07 gemini-diagnostics | 有界失败诊断与快照：`src/llm_models/{gemini_failure_diagnostics,request_snapshot}.py` | `pytests/neko/test_gemini_failure_diagnostics.py` | 上游保脱敏、有界记录和原失败终态 |
 | N08 gemini-fallback | 首候选解析、结构化拦截、任务内可配置备用：`src/llm_models/{exceptions,utils_model,model_client/gemini_client}.py`；`src/config/{config,model_configs,shared_models}.py`、`src/host/shared_models.py`、`src/webui/routers/config.py` | `pytests/neko/test_gemini_failure_diagnostics.py`，含真实保存/迁移、非法引用及跨Bot保护 | 上游同时满足候选解析、未输出/未锁模型、候选交集、三态配置与有限重试 |
-| N09 rpc-media | 双端32MiB、协商媒体表/同图去重：`src/plugin_runtime/{transport/base,protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
+| N09 rpc-media | 官方双端32MiB、维护协商媒体表/同图去重：`src/plugin_runtime/{protocol/hook_media,protocol/envelope,host/rpc_server,runner/rpc_client}.py` | `pytests/neko/test_rpc_frame_limit.py`、`test_hook_media_wire.py` | 上游兼容旧端、限制还原帧大小、失败不重放 |
 | N10 gif-frames | 浮点MSE已由上游吸收；保留单帧/非正上限：`src/common/utils/utils_image.py::ImageUtils.gif_2_static_image` | `pytests/neko/test_gif_static_image.py` | 上游覆盖uint8溢出、max_frames及阈值边界 |
 | N11 focus-recovery | 请求失败等新输入恢复、失效成员隔离、无执行快照时有限只读摘要：`src/maisaka/focus/group_runtime.py`、`src/maisaka/chat_loop_service.py`、`src/maisaka/context/compaction.py` | `pytests/maisaka/test_focus_group_runtime.py`、`pytests/neko/test_focus_recovery.py` | 上游保新输入唤醒、有限摘要原子提交、失败保留输入、无自动重试循环及unknown不重放 |
-| N12 subagent-evidence | 子代理来源与核实层级交接：`prompts/{zh-CN,en-US,ja-JP}/main/maisaka_subagent.prompt`，由`src/maisaka/builtin_tool/subagent.py`加载 | 三语提示人工核对、宿主契约及来源hash；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
+| N12 subagent-evidence | 子代理来源与核实层级交接：`prompts/{zh-CN,en-US,ja-JP}/main/agent/maisaka_subagent.prompt`，由`src/maisaka/builtin_tool/subagent.py`加载 | 三语提示人工核对、宿主契约及来源hash；不以提示断言证明模型遵循 | 上游提示等价覆盖来源URL、证据层级及检索收尾 |
 | N13 dashboard-echo | 群/私聊自身回传展示合并：`dashboard/src/routes/monitor/maisaka-monitor.tsx`的`getSelfEchoIdentity`及气泡投影 | 对应监控合成样本、前端类型/构建、实际静态hash；无独立N13自动测试文件 | 上游按正式消息身份合并，缺身份和无出站对应仍保留 |
 | N14 runtime-lock | `uv.lock`、固定SDK/TTS测试fixture、CI与包门禁：`scripts/neko_*.py`、`pytests/neko/`、`.github/workflows/neko-ci.yml` | 完整契约、隔离源包导入、来源集合核对 | 不因上游删除锁撤销；需明确新的可复现依赖与验证策略 |
 | N15 bounded-steering | 普通聊天有限消息打断：`src/maisaka/reasoning_engine.py`、配置说明`src/config/official_configs.py` | `pytests/neko/test_bounded_steering.py`实际循环、准备竞态、取消/失败清理、关闭开关 | 上游跨重请求限制消息打断且保留排队输入与外部取消；共享Focus合同不变 |
 | N16 planner-progress | 请求局部进度：`src/llm_models/{request_progress,utils_model}.py`、`src/maisaka/{reasoning_engine,focus/group_runtime}.py`；UI：`dashboard/src/routes/monitor/maisaka-monitor.tsx`的`StageStatusContent`/`ToolExecutionElapsed` | `pytests/neko/test_planner_progress.py`并发隔离、完成/取消清理、观察失败不影响请求 | 上游展示请求/重试/候选切换及实时耗时，保原超时/候选策略 |
 | N18 focus-subagents | 共享Focus子代理观察归属：`src/maisaka/builtin_tool/subagent.py`、`src/maisaka/monitor/{events,event_store}.py`、`src/webui/routers/websocket/unified.py`；UI：`dashboard/src/lib/maisaka-monitor-client.ts`及`dashboard/src/routes/monitor/{use-maisaka-monitor,subagent-panel-state,subagent-panel,maisaka-monitor}` | `pytests/neko/test_focus_subagents.py`、`dashboard/src/routes/monitor/use-maisaka-monitor.test.ts`；成员/调用精确关联、停止/改组/重启、实时和历史回放 | 上游覆盖不可变派发归属与成员身份、历史精确关联及跨成员任务碰撞，且保执行与权限边界 |
-| N19 host-origin | Host来源检查：`src/host/{proxy,webui}.py` | `pytests/neko/test_host_origin.py`；Host写入口及Worker代理保同源与缺Origin兼容 | 上游提供等价来源限制且保cookie/Host写标记合同 |
-| N20 schedule-opt-in | 官方日程显式启用：`src/config/official_configs.py`、`src/maisaka/builtin_tool/__init__.py`、`src/services/schedules/service.py` | `pytests/neko/test_schedule_opt_in.py`；默认不发现/加载/写入/投递，保留旧事项 | 上游提供等价默认关闭能力开关，并明确选择迁移日程职责 |
+| N19 host-origin | Host来源检查：`src/host/{proxy,webui,sessions}.py` | `pytests/neko/test_host_origin.py`；Host写入口及Worker代理保同源与缺Origin兼容 | 上游提供等价来源限制且保cookie/Host写标记合同 |
+| N20 schedule-opt-in | 官方日程显式启用：`src/config/official_configs.py`、`src/maisaka/builtin_tool/__init__.py`、`src/services/schedules/{service,repository}.py` | `pytests/neko/test_schedule_opt_in.py`；默认不发现/加载/写入/投递，保留旧事项 | 上游提供等价默认关闭能力开关，并明确选择迁移日程职责 |
+| N21 tool-discovery | 授权工具非尾载发现：`src/maisaka/{reasoning_engine,runtime,focus/tools,builtin_tool/tool_search}.py`、`src/config/official_configs.py` | `pytests/maisaka/test_tool_discovery.py` 普通/Focus两模式、下一轮切换、成员路由 | 上游提供等价的授权内发现声明并保显式选择 |
+| N22 model-routing | 原任务槽及职责：`src/config/{model_configs,default_model_config}.py`、`src/services/service_task_resolver.py`、`src/emoji_system/emoji_manager.py`、`src/maisaka/{tool_result_condenser,memory/heuristic_injector}.py`、`src/webui/services/ai_search_agent.py`和Dashboard模型任务 | 模型模板迁移、`pytests/plugin_runtime/test_llm_capability_model_args.py`、工具压缩/前端任务回归 | 上游恢复同等路由或用户另行选择新模型职责及迁移 |
 
 N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planner，退出后继承上下文失效；不改等待参数、总期限、重试/切模型策略，不让摘要/Replyer覆盖Planner进度。前端复用现有elapsed组件，不增加服务端心跳。
 
@@ -216,7 +222,7 @@ N16仅观察现有请求生命周期，ContextVar绑定本次普通/共享Planne
 子代理提示补充：已有来源优先读取核实、重复搜索无新证据及时收尾、找图优先预览配图而非猜文件名；
 最终网络结论保关键URL，区分搜索摘录/已读正文/已预览图片，不把不同格式当不同构图。
 只调整子代理工作提示，模型、人设、权限、轮数和工具执行保持；提示不保证模型必然遵从。
-当前内容在三语`main/maisaka_subagent.prompt`，由subagent.py加载；旧内联提示已移植，不以失效常量判断生效。
+当前内容在三语`main/agent/maisaka_subagent.prompt`，由subagent.py加载；旧内联提示已移植，不以失效常量判断生效。
 
 ### N11 Focus 请求失败恢复（2026-11-05）
 
@@ -404,7 +410,7 @@ Life已退役且仓库改为私有，2026-10-28用户批准解除公共CI的私�
 公共CI不冒称执行私有Life消费者验证；宿主摘要隔离/精确回执/共享Focus保护与实际TTS消费者仍为必跑项。
 
 - Linux 生产锚点 Python **3.14.4**，Windows 最低 Python **3.12**；
-  Dashboard **1.10.5** 从同一校验锁安装，SDK固定 **2.23.0**；CI使用uv0.13.5，不把 latest 当生产环境。
+  Dashboard **1.10.6** 从同一校验锁安装，SDK固定 **2.23.0**；CI使用uv0.13.5，不把 latest 当生产环境。
 - 运行真实宿主类、真实 SDK，以及回执/取消/摘要/共享 Focus/回复扩展的受影响合成契约，
   不重复七插件全库，不声称覆盖整个上游。测试使用临时实例，禁止真实模型或 QQ 请求；
   唯一网络例外是 Windows 标准库内部创建 asyncio socket pair 的自连接，不放行模型代理或适配器端口。
@@ -431,7 +437,7 @@ Life已退役且仓库改为私有，2026-10-28用户批准解除公共CI的私�
   已被上游实现、仍需保留或需要移植，再验证相关行为。不要自动追 main/dev，不强推共享历史。
 - GitHub Sync fork 只用于镜像线；不能对维护线使用丢弃提交式同步。
 - 候选合入`neko/main`后，主会话回正式维护目录，后续收尾直接提交`neko/main`，不继续双推`integrate/*`。临时分支/worktree确认无独有改动且无制品依赖后清理；删除目录前先切走会话及相关终端/文件面板，不在仍使用该目录时强制删除。生产仍固定已验业务SHA，不随文档HEAD切换。
-- 上游 16 个 workflow 原样职责留在 `.github/upstream-workflows/`，不在活动 workflow 路径。
+- 上游 18 个 workflow 原样职责留在 `.github/upstream-workflows/`，不在活动 workflow 路径。
   创建后先关闭 Actions；注册过的继承 workflow 逐个禁用，未注册的也不启用，再开放唯一只读 `neko-ci.yml`。
   因镜像线仍含官方 workflow，**每次推镜像前都要先关闭仓库 Actions，检查新增 workflow 并禁用**；
   不能只看维护分支安全就开放镜像流程。仓库默认 token 只读且不能批准 PR，无生产 secrets/OIDC。

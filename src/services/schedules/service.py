@@ -10,18 +10,17 @@ from src.common.logger import get_logger
 from src.common.paths import get_instance_root
 from src.common.prompt_i18n import load_prompt
 from src.config.config import global_config
-from src.core.internal_chat import INTERNAL_CHAT_PLATFORM, INTERNAL_CHAT_USER_ID
 
-from .commands import execute_todo
-from .store import TodoStore
+from .repository import ScheduleRepository, schedules_directory
 
 logger = get_logger("schedule")
 
 
 class ScheduleService:
-    def __init__(self, path: Optional[Path] = None) -> None:
+    def __init__(self, path: Optional[Path] = None, legacy_path: Optional[Path] = None) -> None:
         self._path = path
-        self._store: Optional[TodoStore] = None
+        self._legacy_path = legacy_path
+        self._store: Optional[ScheduleRepository] = None
         self._lock = asyncio.Lock()
         self._worker: Optional[asyncio.Task[None]] = None
         self._operations: Set[asyncio.Task[Any]] = set()
@@ -31,10 +30,15 @@ class ScheduleService:
         if not global_config.capabilities.chat_schedules:
             return
         async with self._lock:
+            # NEKO: N20 schedule-opt-in — revocation before startup must also block legacy migration.
+            if not global_config.capabilities.chat_schedules:
+                return
             if self._store is None:
-                # 保留既有事项和附件路径，无需复制数据或依赖桌宠启动。
-                path = self._path or get_instance_root() / "data/plugins/sengokucola.desktop-pet/todos.json"
-                self._store = await asyncio.to_thread(TodoStore, path)
+                path = self._path if self._path is not None else schedules_directory()
+                legacy_path = self._legacy_path
+                if self._path is None and legacy_path is None:
+                    legacy_path = get_instance_root() / "data/plugins/sengokucola.desktop-pet/todos.json"
+                self._store = await asyncio.to_thread(ScheduleRepository, path, legacy_path)
             if self._worker is None or self._worker.done():
                 self._worker = asyncio.create_task(self._run(), name="chat-schedules")
 
@@ -50,29 +54,15 @@ class ScheduleService:
         store = self._store
         if store is None:
             raise RuntimeError("日程服务尚未启动")
-        with store._lock:
-            if session_id is not None:
-                from src.desktop_pet.chat_tools import is_owner_chat
+        if session_id is not None:
+            from src.desktop_pet.chat_tools import is_owner_chat
 
-                owner = is_owner_chat(session_id)
-                def belongs(item: Dict[str, Any]) -> bool:
-                    return item["session_id"] == session_id or (owner and not item["session_id"])
-
-                action = command["action"]
-                if action == "list":
-                    return {"items": [item for item in store.list(command.get("include_completed", False))
-                                      if belongs(item)]}
-                if action not in {"add", "update", "cancel", "complete"}:
-                    raise ValueError("不支持的日程操作")
-                if action != "add":
-                    item = next((item for item in store.list(True) if item["id"] == command["todo_id"]
-                                 and belongs(item)), None)
-                    if item is None:
-                        raise ValueError("当前聊天中不存在此日程，请先查询真实 ID")
-                options = command.get("options", {})
-                if action in {"add", "update"} and options.get("session_id", session_id) != session_id:
-                    raise ValueError("不能修改日程所属聊天")
-            return execute_todo(store, command)
+            actions = {"add", "list", "update", "cancel", "complete", "claim_due"}
+            if is_owner_chat(session_id):
+                actions.update({"delete", "claim_condition", "finish"})
+            if command["action"] not in actions:
+                raise ValueError("不支持的日程操作")
+        return store.execute(command, session_id)
 
     async def command(self, command: Dict[str, Any], *, session_id: Optional[str] = None) -> Dict[str, Any]:
         # NEKO: N20 schedule-opt-in — direct tools and desktop callers cannot bypass the capability.
@@ -125,19 +115,23 @@ class ScheduleService:
         command: Dict[str, Any] = {"action": "claim_due"}
         if not desktop_pet_service.status()["ready"]:
             command["kind"] = "bot"
-        claimed = await self.command(command)
-        for item in claimed["items"]:
-            try:
-                await self.dispatch(item)
-            except asyncio.CancelledError:
-                # 取消可能发生于领取后，恢复 pending 由下一次启动重新投递。
-                raise
-            except Exception as exc:
-                logger.exception("日程 %s 触发失败", item["id"])
-                await self.command({"action": "finish", "todo_id": item["id"],
-                                    "revision": item["revision"], "error": str(exc)})
-            else:
-                await self.command({"action": "finish", "todo_id": item["id"], "revision": item["revision"]})
+        snapshot = await self.command({"action": "list"})
+        session_ids = sorted({item["session_id"] for item in snapshot["items"]})
+        # 每个会话领取后立即投递，后续文件写入失败不会遗留前一个会话的已领取任务。
+        for session_id in session_ids:
+            claimed = await self.command(command, session_id=session_id)
+            for item in claimed["items"]:
+                try:
+                    await self.dispatch(item)
+                except asyncio.CancelledError:
+                    # 取消可能发生于领取后，恢复 pending 由下一次启动重新投递。
+                    raise
+                except Exception as exc:
+                    logger.exception("日程 %s 触发失败", item["id"])
+                    await self.command({"action": "finish", "todo_id": item["id"],
+                                        "revision": item["revision"], "error": str(exc)})
+                else:
+                    await self.command({"action": "finish", "todo_id": item["id"], "revision": item["revision"]})
 
     async def dispatch(self, item: Dict[str, Any]) -> None:
         from src.chat.heart_flow.heartflow_manager import heartflow_manager
@@ -149,7 +143,7 @@ class ScheduleService:
             # NEKO: N20 schedule-opt-in — recheck after awaiting the dispatch lock.
             if not global_config.capabilities.chat_schedules:
                 return
-            snapshot = await asyncio.to_thread(self._execute, {"action": "list"}, None)
+            snapshot = await asyncio.to_thread(self._execute, {"action": "list"}, item["session_id"])
             if not any(entry["id"] == item["id"] and entry["revision"] == item["revision"]
                        and entry["status"] == "dispatching" for entry in snapshot["items"]):
                 return
@@ -159,17 +153,9 @@ class ScheduleService:
                     {"kind": "text", "text": "⏰ 提醒：" + item["text"]},
                 ]})
                 return
-            if item["session_id"]:
-                session = chat_manager.get_session_by_session_id(item["session_id"])
-                if session is None:
-                    raise ValueError("日程所属聊天流已不存在")
-            else:
-                # 既有桌宠事项归主人内部私聊，解析真实会话，禁止自行计算 ID。
-                sessions = await asyncio.to_thread(chat_manager.resolve_sessions_by_target,
-                    platform=INTERNAL_CHAT_PLATFORM, target_id=INTERNAL_CHAT_USER_ID, chat_type="private")
-                if len(sessions) != 1:
-                    raise ValueError("无法确定主人聊天流，请先建立唯一的主人会话")
-                session = sessions[0]
+            session = chat_manager.get_session_by_session_id(item["session_id"])
+            if session is None:
+                raise ValueError("日程所属聊天流已不存在")
             if not await heartflow_manager._is_session_allowed(session):
                 raise PermissionError("当前策略禁止唤醒日程所属聊天流")
             runtime = await heartflow_manager.get_or_create_heartflow_chat(session.session_id)

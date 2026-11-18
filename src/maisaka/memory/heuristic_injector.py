@@ -51,6 +51,7 @@ class HeuristicMemoryInjector:
     def __init__(self) -> None:
         self._states: dict[str, HeuristicMemoryRecallState] = {}
         self._impression_client = LLMServiceClient(
+            # NEKO: N22 model-routing — retain the existing task, provider order, budget and fallback configuration.
             task_name="utils",
             request_type="heuristic_memory_impression",
         )

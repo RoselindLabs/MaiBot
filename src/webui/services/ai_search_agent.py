@@ -54,6 +54,7 @@ def _get_ai_search_model() -> LLMServiceClient:
 
     global _ai_search_model
     if _ai_search_model is None:
+        # NEKO: N22 model-routing — retain the existing task, provider order, budget and fallback configuration.
         _ai_search_model = LLMServiceClient(task_name="utils", request_type="webui.ai_search")
     return _ai_search_model
 

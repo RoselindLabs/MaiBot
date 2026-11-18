@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_all_registered_source_bytes_match():
     manifest = json.loads((ROOT / "neko-patches.json").read_text(encoding="utf-8"))
-    assert len(manifest["sources"]) == 47
+    assert len(manifest["sources"]) == 57
     for name, digest in manifest["sources"].items():
         assert hashlib.sha256((ROOT / name).read_bytes()).hexdigest() == digest, name
 
@@ -121,7 +121,7 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
     current = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     before = {package["name"]: package["version"] for package in official["package"]}
     after = {package["name"]: package["version"] for package in current["package"]}
-    reviewed = {"maibot": "1.4.5", "maibot-dashboard": "1.10.5", "maibot-plugin-sdk": "2.23.0"}
+    reviewed = {"maibot": "1.4.6", "maibot-dashboard": "1.10.6", "maibot-plugin-sdk": "2.23.0"}
     added = {"imageio-ffmpeg": "0.8.1", "pycryptodome": "3.24.1", "qrcode": "8.2", "rlottie-python": "1.3.8"}
     assert after == {**before, **reviewed, **added}
     official_packages = {package["name"]: package for package in official["package"]}
@@ -147,7 +147,7 @@ def test_only_the_readonly_fork_workflow_is_active():
     assert "contents: read" in text and "pull_request_target" not in text
     assert "id-token:" not in text and "secrets." not in text and "write" not in text
     assert "github.repository == 'RoselindLabs/MaiBot'" in text
-    assert len(list((ROOT / ".github/upstream-workflows").glob("*.yml"))) == 16
+    assert len(list((ROOT / ".github/upstream-workflows").glob("*.yml"))) == 18
 
 
 def test_gate_rejects_empty_missing_failed_or_skipped_groups():

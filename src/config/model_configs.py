@@ -540,6 +540,7 @@ class ModelTaskConfig(ConfigBase):
     )
     """快速模型配置，用于表达方式选择、回复断句等需要快速完成的小任务，建议选择响应快的模型；留空时用 utils 模型"""
 
+    # NEKO: N22 model-routing — keep explicit per-task settings and custom fallback targets on migration.
     emoji: TaskConfig = Field(
         default_factory=TaskConfig,
         json_schema_extra={

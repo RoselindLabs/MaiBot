@@ -96,7 +96,7 @@ def test_direct_git_url_allows_private_network(monkeypatch, tmp_path, url, opera
         result = asyncio.run(service.pull_repository(tmp_path, remote_url=url))
         assert run.call_args_list[0].args[0] == ["git", "remote", "set-url", "origin", url]
         assert run.call_args_list[1].args[0] == ["git", "fetch", "origin", "--prune"]
-        apply.assert_awaited_once_with(tmp_path, "@{upstream}", False, None, None)
+        apply.assert_awaited_once_with(tmp_path, "@{upstream}", False, None)
     assert result["success"]
 
 
