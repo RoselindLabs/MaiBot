@@ -178,7 +178,7 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 
 **N23 `maisaka.replyer.prepare_history` v1**：实际模型选定、历史过滤、视觉配额与模板槽确定后，每次 `reply` profile 的正文构建在主事件循环分发一次（含超创意语言）。切换候选/重试重新建句柄；`mai_replier`、`document`、翻译、续写与 Planner 不分发。原 `before_model_request` 仍只收最终 Items 及原参数，无需旧订阅者升级或处理新字段。无插件效果时，普通模板仍是 system + 一条 user。
 
-- 输入仅 `{schema_version:1, session_id, reply_message_id, entries:[{handle,message_id,is_self,pure_voice}]}`；按当前模板完整对话槽实际可见行顺序，以同会话真实 IM 的原始 ID 认领。正文、引文和模板文字均不携带，不从模型文字反推。重号、缺归属或仅在截断/转义等特殊格式中显示的内容不认领。重复对话槽只报告一次身份且不扩大视觉配额。
+- 输入仅 `{schema_version:1, session_id, reply_message_id, entries:[{handle,message_id,is_self,pure_voice}]}`；按当前模板完整对话槽实际可见行顺序，以同会话真实 IM 的原始 ID 认领。准备历史和最终模型请求两个 Hook 均仅在目标的正式会话与本轮非空会话相同时提供原始目标 ID；目标不在历史窗口仍可按目标回补，跨会话同号或缺归属时传空。正文、引文和模板文字均不携带，不从模型文字反推。重号、缺归属或仅在截断/转义等特殊格式中显示的内容不认领。重复对话槽只报告一次身份且不扩大视觉配额。
 - 阻塞处理器可返回 `action="continue"`、`custom_result={schema_version:1, hide:[handle,...], references:[{handle,text},...]}`，动作均可省。宿主只接受本次句柄：`hide` 仅对本人的单一 VoiceComponent **历史行**有效；TTS 消费者还须验证自己的同会话成功回执。目标块、引用和独立要求不删除。`references` 只允许非自身、非目标行；目标沿旧最终 Hook，宿主将有效参考作为独立的不可信资料 Item 放在最终用户模板之前，不伪装成用户原话或改变原始图片。
 - 宿主以本次原始消息 ID＋参考文字去重，单份不超过6000字符；一轮最多12份、合计12000字符，插件原有更小配额及开关仍生效。禁止改写输入或中止回复；失败处理器、未知版本和越权动作不影响原历史。没有跨请求表、写库或自动重放。
 

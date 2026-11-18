@@ -445,6 +445,13 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
             think_level=think_level,
         )
 
+    @staticmethod
+    def _scoped_reply_message_id(session_id: str, target: Optional[SessionMessage]) -> str:
+        """NEKO: N23 reply-history — 两个模型输入 Hook 仅对已确认同会话的目标暴露原始 ID。"""
+        if not session_id or target is None or getattr(target, "session_id", None) != session_id:
+            return ""
+        return target.message_id
+
     async def _invoke_before_model_request_hook(
         self,
         *,
@@ -477,7 +484,8 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
                 attempt=attempt,
                 retry_count=retry_count,
                 max_retries=REPLYER_MAX_HOOK_RETRIES,
-                reply_message_id=str(reply_message.message_id if reply_message is not None else ""),
+                # NEKO: N23 reply-history — 目标回补与历史准备遵守同一会话边界，不借用外会话的同号记录。
+                reply_message_id=self._scoped_reply_message_id(session_id, reply_message),
                 reply_reason=reply_reason or "",
                 selected_expression_ids=list(selected_expression_ids),
                 reply_tool_args={**reply_tool_args, "_replyer_prompt_profile": prompt_profile or self._resolve_prompt_profile(model_info)},
@@ -765,8 +773,7 @@ class BaseMaisakaReplyGenerator(ChatReplyPromptMixin):
         if (kwargs.get("prompt_profile") or self._resolve_prompt_profile()) != "reply":
             return await asyncio.to_thread(self._build_generation_messages, **kwargs)
         session_id = self._resolve_session_id(kwargs.get("stream_id"))
-        target = kwargs.get("reply_message")
-        target_id = target.message_id if target is not None and getattr(target, "session_id", None) == session_id else ""
+        target_id = self._scoped_reply_message_id(session_id, kwargs.get("reply_message"))
         draft = ReplyHistoryDraft(session_id, target_id)
         items = await asyncio.to_thread(self._build_generation_messages, history_draft=draft, **kwargs)
         results = []

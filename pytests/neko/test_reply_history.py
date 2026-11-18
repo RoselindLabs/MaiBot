@@ -173,6 +173,39 @@ async def test_metadata_only_for_real_template_slots(template, rows, occurrences
     assert calls == [(HOOK, rows)]
 
 
+@pytest.mark.parametrize("target_session, expected", [(SESSION, "same-id"), ("other-session", ""), (None, "")])
+async def test_off_window_target_fallback_uses_same_session_in_both_hooks(target_session, expected):
+    gen = generator("{dialogue_prompt}")
+    target = msg("same-id", TextComponent("target"), sid=target_session).original_message
+    seen = []
+    lookup = {(SESSION, "same-id"): "local-note", ("other-session", "same-id"): "foreign-note"}
+
+    async def dispatch(name, **payload):
+        key = payload["session_id"], payload["reply_message_id"]
+        seen.append((name, key, lookup.get(key)))
+        return HookDispatchResult(name, kwargs=payload)
+
+    gen._get_runtime_manager = lambda: SimpleNamespace(invoke_hook=dispatch)
+    items = await gen._prepare_generation_messages(**args([msg("later", TextComponent("latest"))], target))
+    await gen._invoke_before_model_request_hook(
+        request_messages=items,
+        session_id=SESSION,
+        active_task_name="replyer",
+        active_model_name=None,
+        model_info=None,
+        attempt=1,
+        retry_count=0,
+        reply_message=target,
+        reply_reason="",
+        selected_expression_ids=[],
+        reply_tool_args={},
+    )
+    assert seen == [
+        (name, (SESSION, expected), "local-note" if expected else None)
+        for name in (HOOK, "maisaka.replyer.before_model_request")
+    ]
+
+
 def test_registered_host_actions_are_read_only_and_failed_handlers_cannot_propose_effects():
     registry = HookSpecRegistry()
     register_maisaka_hook_specs(registry)
