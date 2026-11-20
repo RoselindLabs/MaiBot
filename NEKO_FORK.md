@@ -10,12 +10,13 @@
 <a id="当前维护状态"></a>
 <a id="145-源码集成状态2026-11-15未部署"></a>
 <a id="146-源码集成状态2026-11-18未部署"></a>
-## 1.4.8 源码集成状态（未部署）
+<a id="148-源码集成状态未部署"></a>
+## 1.4.8 当前维护状态（已上线）
 
 | 边界 | 当前依据 |
 | --- | --- |
 | 上游基线 | [正式 v1.4.8](https://github.com/Mai-with-u/MaiBot/releases/tag/v1.4.8)／`edf42446f123149c57fc79765dd5a8b004b8524c`，包含 v1.4.7；[源码验证记录](docs/NEKO_HISTORY.md#release-148) |
-| 已部署业务修订 | 仍为 1.4.6／`5a06dde4a51399811ebfc3fde24b28e5719a3b4e`，SDK 2.23.0、Dashboard 1.10.6。见[1.4.6 上线记录](docs/NEKO_HISTORY.md#release-146) |
+| 已部署业务修订 | `d9423e2e9fee550f9f4dcc78de1e6765618445ae`，固定同 SHA 的 Dashboard 1.10.8（324 个静态文件）；13 个启用插件全部加载，版本不变。[本次上线记录](docs/NEKO_HISTORY.md#release-148) |
 | 源码依赖 | SDK 保持 2.23.0，Dashboard 1.10.8；锁只更新宿主与 Dashboard |
 | 源码配置及库版本 | 主配置 8.16.38、模型任务 1.17.31（与官方 8.16.37／1.17.30 区分）、公共目录 3.0.0；主库/记忆元库仍为 55/31，无新增 schema 迁移 |
 | 适配器 | 上游 OpenID 改动属内置 QQ 官方适配器；无 SnowLuma/独立 Telegram 配套升级要求，N17 仍撤回 |
@@ -125,6 +126,7 @@ N08只扩展目标筛选，不改PROHIBITED_CONTENT、显式单模型、流式�
 - 持有响应CookieJar，不能硬编码cookie名称。名称为`maibot_host_session_<workspace字符串sha256前12>`，
   HttpOnly、SameSite=Lax、path=/、8小时绝对期限，Secure沿配置；凭据和cookie不输出日志。
 - GET `/api/webui/auth/check`或`/api/host/session`核会话；GET `/api/host/bots`返回bots及workspace。
+- 使用 HostedMessageServer 的部署由 Worker 挂载消息协议，不要求另有独立 TCP 8000 监听。就绪应核对当前服务进程内 Worker 的 `ready`、其实际 IPC 端点，以及经 Host 转发的业务接口。
   必须按登记directory精确识别实例并校验32位hex bot_id，不按昵称或默认第一条推断。
 - 业务接口为`/api/host/bots/{bot_id}/proxy/api/webui/...`，插件加载状态用末尾`plugins/installed`。
   使用Host cookie，不拿旧Bearer访问Worker。proxy剥离cookie/authorization后走实例IPC。
