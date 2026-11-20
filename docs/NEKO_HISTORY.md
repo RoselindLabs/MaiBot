@@ -11,6 +11,7 @@
 - 只更新 `maibot`、`maibot-dashboard` 两个锁项，SDK 仍锁 2.23.0；上游两处发布 workflow 的改动仍在归档目录，唯一活动 workflow 是 `neko-ci.yml`。本次无实例配置、生产迁移或适配器切换。
 - 合并 `36b7b466c` 的本地标准禁网门禁 **854 项通过**，60 项来源（13 个修改的维护源及锁重算摘要）。涵盖群聊频率/等待、语音回放/插件分段、从官方 1.17.30 和维护版 1.17.28 的配置迁移；不代表实际模型或 QQ 投递。
 - Dashboard 1.10.8 以 Bun 1.2.1 冻结安装，`tsc -b` 及 Vite 构建通过，324 个静态文件。监控 57 项通过，模型页及其相邻测试首轮 138/142；4 个旧交互断言按实际入口修订后逐项通过，没有为适配测试更改界面行为。
+- 最终候选 `d9423e2e9fee550f9f4dcc78de1e6765618445ae` 的 [CI 44725524853](https://github.com/RoselindLabs/MaiBot/actions/runs/44725524853) 通过 Linux／CPython 3.14.4、Windows／3.12 的合同、源码包及汇总门禁。本地由该干净提交生成的源码 ZIP SHA-256：`35903d8fb0319abc188beff0ca95691988baab00f7a287e048e6cb47d8b0faf6`，解包后 60 项来源、三语模板及真实 SDK 隔离导入通过。
 
 <a id="release-146"></a>
 <a id="release-146-source"></a>
