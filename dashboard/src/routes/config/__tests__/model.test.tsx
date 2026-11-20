@@ -366,7 +366,7 @@ async function openTaskEditor(user: ReturnType<typeof userEvent.setup>, task: st
     await user.click(screen.getByRole('button', { name: /MORE/ }))
   }
   const card = document.querySelector<HTMLElement>(selector)!
-  await user.click(within(card).getByRole('button', { name: /编辑|安排模型|开启/ }))
+  await user.click(within(card).getByRole('button', { name: /^(编辑|\+ 安排模型|\+ 设置)$/ }))
   return screen.findByRole('dialog', { name: new RegExp(title) })
 }
 
@@ -1027,7 +1027,7 @@ describe('ModelConfigPage 特征化', () => {
     expect(screen.queryByRole('heading', { name: 'openai' })).not.toBeInTheDocument()
   })
 
-  it('空厂商添加模型时校验缺失的提供商和必填项', async () => {
+  it('空厂商添加模型时禁用 LLM 和嵌入，语音模型仍可从模板添加', async () => {
     const user = userEvent.setup()
     const emptyConfig = {
       models: [],
@@ -1038,16 +1038,16 @@ describe('ModelConfigPage 特征化', () => {
     vi.mocked(configApi.getModelConfig).mockResolvedValue(emptyConfig as never)
 
     await renderModelPage()
-    await user.click(screen.getByRole('tab', { name: /^模型库/ }))
-    await openAddModel(user)
-
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByRole('heading', { name: '添加 LLM 模型' })).toBeInTheDocument()
-    await user.click(within(dialog).getByRole('button', { name: '保存' }))
-
-    expect(within(dialog).getByText('请输入模型名称')).toBeInTheDocument()
-    expect(within(dialog).getByText('请选择 API 提供商')).toBeInTheDocument()
-    expect(within(dialog).getByText('请输入模型标识符')).toBeInTheDocument()
+    await openConfigurationTab(user)
+    await user.click(document.querySelector<HTMLButtonElement>('[data-tour="add-model-button"]')!)
+    expect(screen.getByRole('menuitem', { name: '添加 LLM 模型' })).toHaveAttribute('aria-disabled', 'true')
+    await user.click(screen.getByRole('menuitem', { name: '其他模型' }))
+    for (const name of ['嵌入模型', '多模态嵌入模型']) {
+      expect(await screen.findByRole('menuitem', { name })).toHaveAttribute('aria-disabled', 'true')
+    }
+    fireEvent.click(screen.getByRole('menuitem', { name: '语音识别模型' }))
+    const dialog = await screen.findByRole('dialog', { name: '添加语音识别' })
+    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled()
     expect(configApi.updateModelConfig).not.toHaveBeenCalled()
   })
 
@@ -1846,7 +1846,7 @@ describe('ModelConfigPage 特征化', () => {
     expect(within(editor).queryByLabelText('最大 Token')).not.toBeInTheDocument()
     await user.keyboard('{Escape}')
     await user.click(screen.getByRole('button', { name: /MORE/ }))
-    expect(screen.queryByText('语音')).not.toBeInTheDocument()
+    expect(document.querySelector('[data-config-field-path="model_task_config.voice"]')).not.toBeInTheDocument()
   })
 
   it('取消删除单个模型与批量删除都不会改动列表', async () => {
