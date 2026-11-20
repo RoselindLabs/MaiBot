@@ -222,7 +222,7 @@ class ChatServices:
         self._clear_forced_turn_state = Mock()
         self._trigger_trimmed_history_learning = AsyncMock()
         self._stop_background_subagents = AsyncMock()
-        self._clear_wait_state = Mock()
+        self._end_logical_turn = Mock()
         self._ensure_background_tasks_running = Mock()
         self._schedule_message_turn = Mock()
         self._enter_stop_state = Mock()

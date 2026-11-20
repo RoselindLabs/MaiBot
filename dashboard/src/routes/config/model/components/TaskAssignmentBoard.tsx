@@ -381,6 +381,8 @@ function groupByProvider(items: TaskCandidate[]) {
 /** 只列出能胜任这项工作的模型：识图要能看图，嵌入只用嵌入模型。 */
 function candidatesFor(task: string, models: ModelInfo[]) {
   const pick = (model: ModelInfo) => {
+    if (task === 'tts') return model.model_type === 'tts'
+    if (model.model_type === 'asr') return task === 'voice'
     if (task === 'embedding' || task === 'image_embedding') {
       return model.model_type === 'embedding' || model.model_type === 'image_embedding'
     }
@@ -454,7 +456,7 @@ function TaskEditor({
 }) {
   const list = config.model_list
   const isWeb = field.name === 'web_search'
-  const isGenerationTask = !isWeb && !['embedding', 'image_embedding'].includes(field.name)
+  const isGenerationTask = !isWeb && !['embedding', 'image_embedding', 'tts'].includes(field.name)
   const fallbackMode = config.gemini_fallback_mode ?? 'legacy_grok'
   const fallbackTargets = models.filter((model) => model.model_type === 'llm' && list.includes(model.name))
   const fallbackError = geminiFallbackError(config, models)

@@ -892,7 +892,7 @@ async def test_shared_catalog_change_protects_other_bots_custom_reference(fallba
     assert any("Gemini备用模型" in error for error in missing_references(other))
 
 
-@pytest.mark.parametrize("old_version", ["1.17.25", "1.17.26", "1.17.27"])
+@pytest.mark.parametrize("old_version", ["1.17.25", "1.17.26", "1.17.27", "1.17.30"])
 def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_path, monkeypatch, old_version):
     import tomlkit
     import tomllib
@@ -910,7 +910,20 @@ def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_
         if name != "web_search":
             assert task.pop("gemini_fallback_mode") == "legacy_grok"
             assert task.pop("gemini_fallback_model") == ""
-    assert MODEL_CONFIG_VERSION == "1.17.28"
+    assert MODEL_CONFIG_VERSION == "1.17.31"
+    if old_version == "1.17.30":
+        # The official speech template has TTS assignments but no fork emoji task.
+        del data["model_task_config"]["emoji"]
+        data["models"].append(
+            {
+                **data["models"][0],
+                "name": "narrator",
+                "model_identifier": "synthetic-tts",
+                "model_type": "tts",
+                "extra_params": {"voice_id": "synthetic"},
+            }
+        )
+        data["model_task_config"]["tts"]["model_list"] = ["narrator"]
     data["inner"]["version"] = old_version
     data["model_task_config"]["planner"]["hard_timeout"] = 83
     path.write_text(tomlkit.dumps(data), encoding="utf-8")
@@ -923,13 +936,16 @@ def test_old_config_upgrade_and_generated_template_preserve_legacy_defaults(tmp_
             assert task.pop("gemini_fallback_mode") == "legacy_grok"
             assert task.pop("gemini_fallback_model") == ""
     migrated["inner"]["version"] = old_version
+    if old_version == "1.17.30":
+        assert migrated["model_task_config"].pop("emoji")["model_list"] == []
     assert migrated == data
     schema = TaskConfig.model_json_schema()["properties"]
     assert schema["gemini_fallback_mode"]["enum"] == ["legacy_grok", "custom", "disabled"]
     assert schema["gemini_fallback_model"]["default"] == ""
 
 
-def test_fork_colliding_schema_upgrade_preserves_custom_and_adds_image_defaults(fallback_config_workspace):
+@pytest.mark.parametrize("old_version", ["1.17.27", "1.17.28"])
+def test_fork_schema_upgrade_preserves_custom_and_adds_opt_in_tts(fallback_config_workspace, old_version):
     import tomllib
     import tomlkit
 
@@ -937,7 +953,7 @@ def test_fork_colliding_schema_upgrade_preserves_custom_and_adds_image_defaults(
     from src.config.shared_models import extract_bot_model_settings
 
     h = fallback_config_workspace
-    h.data["inner"]["version"] = "1.17.27"
+    h.data["inner"]["version"] = old_version
     h.data["model_task_config"]["emoji"] = {
         "model_list": ["primary", "backup"],
         "gemini_fallback_mode": "custom",
@@ -951,10 +967,13 @@ def test_fork_colliding_schema_upgrade_preserves_custom_and_adds_image_defaults(
     task = loaded.model_task_config.planner
     assert loaded.model_task_config.emoji.model_list == ["primary", "backup"]
     assert loaded.model_task_config.emoji.gemini_fallback_model == "backup"
+    assert loaded.model_task_config.tts.model_list == []
     assert (task.gemini_fallback_mode, task.gemini_fallback_model, task.hard_timeout) == ("custom", "backup", 83)
     assert loaded.models[0].max_images == 0
     assert (loaded.models[0].image_min_side, loaded.models[0].image_max_side) == (1, 8000)
-    assert tomllib.loads(h.paths[0].read_text(encoding="utf-8"))["inner"]["version"] == "1.17.28"
+    persisted = tomllib.loads(h.paths[0].read_text(encoding="utf-8"))
+    assert persisted["inner"]["version"] == MODEL_CONFIG_VERSION
+    assert persisted["model_task_config"]["tts"]["model_list"] == []
     assert h.catalog.read_bytes() == original_catalog
     _, updated = load_config_from_file(ModelConfig, h.paths[0], MODEL_CONFIG_VERSION, True)
     assert not updated

@@ -18,6 +18,13 @@ TESTS = (
     "pytests/maisaka/test_context_token_limit.py",
     "pytests/maisaka/test_tool_discovery.py",
     "pytests/maisaka/test_planner_action_judge.py",
+    # 1.4.8: group round accounting and wait boundaries meet fork steering/recovery;
+    # native speech, voice history and provider declarations share existing plugin paths.
+    "pytests/maisaka/test_view_frequency.py",
+    "pytests/maisaka/test_wait_turn_lifecycle.py",
+    "pytests/llm_models/test_tts_reply.py",
+    "pytests/webui/test_chat_voice_history.py",
+    "pytests/plugin_runtime/test_provider_formats.py",
     "pytests/plugin_runtime/test_llm_capability_model_args.py",
     "pytests/test_schedule_storage.py",
     "pytests/maisaka/test_context_compaction.py",

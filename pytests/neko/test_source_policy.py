@@ -121,7 +121,7 @@ def test_targeted_runtime_upgrade_keeps_reviewed_locked_versions():
     current = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     before = {package["name"]: package["version"] for package in official["package"]}
     after = {package["name"]: package["version"] for package in current["package"]}
-    reviewed = {"maibot": "1.4.6", "maibot-dashboard": "1.10.6", "maibot-plugin-sdk": "2.23.0"}
+    reviewed = {"maibot": "1.4.8", "maibot-dashboard": "1.10.8", "maibot-plugin-sdk": "2.23.0"}
     added = {"imageio-ffmpeg": "0.8.1", "pycryptodome": "3.24.1", "qrcode": "8.2", "rlottie-python": "1.3.8"}
     assert after == {**before, **reviewed, **added}
     official_packages = {package["name"]: package for package in official["package"]}

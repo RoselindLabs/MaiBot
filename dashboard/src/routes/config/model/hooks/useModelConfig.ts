@@ -47,7 +47,7 @@ import { useModelAutoSave } from './useModelAutoSave'
 import { useEmbeddingWarning, type PendingEmbeddingUpdate } from './useEmbeddingWarning'
 import { readWebSearchConfig, type WebSearchConfig } from '../../webSearch/types'
 
-const ADVANCED_MODEL_TASK_NAMES = new Set(['memory', 'learner', 'emoji', 'voice'])
+const ADVANCED_MODEL_TASK_NAMES = new Set(['memory', 'learner', 'emoji', 'voice', 'tts'])
 
 /** Unwrap backend `{ success, config }` envelope to get the actual config */
 function unwrapModelConfig(data: unknown): Record<string, unknown> {
@@ -177,7 +177,7 @@ export function useModelConfig() {
   const autoSaving = modelAutoSaving || providerAutoSaving
   const hasUnsavedChanges = modelHasUnsavedChanges || providerHasUnsavedChanges
 
-  // ---- 模型配置文件副本 ----
+  // ---- 分工方案 ----
   const [activeConfigVersion, setActiveConfigVersion] = useState<ModelConfigVersionInfo | null>(
     null
   )
@@ -403,9 +403,9 @@ export function useModelConfig() {
       setActiveConfigVersion(versionResult.active_version)
       setConfigVersions(versionResult.versions)
     } catch (error) {
-      console.error('加载模型配置副本失败:', error)
+      console.error('加载分工方案失败:', error)
       toast({
-        title: '副本列表加载失败',
+        title: '分工方案列表加载失败',
         description: (error as Error).message,
         variant: 'destructive',
       })
@@ -440,7 +440,7 @@ export function useModelConfig() {
       setWebConfig(readWebSearchConfig(config.web))
       const modelList = (config.models as ModelInfo[]) || []
       for (const model of modelList) {
-        if (!['llm', 'embedding', 'image_embedding'].includes(model.model_type)) {
+        if (!['llm', 'embedding', 'image_embedding', 'asr', 'tts'].includes(model.model_type)) {
           throw new Error(`模型 ${model.name} 缺少或包含无效的 model_type，请检查配置升级是否完成`)
         }
       }
@@ -475,7 +475,7 @@ export function useModelConfig() {
         setActiveConfigVersion(versionsResult.value.active_version)
         setConfigVersions(versionsResult.value.versions)
       } else {
-        console.error('加载模型配置副本失败:', versionsResult.reason)
+        console.error('加载分工方案失败:', versionsResult.reason)
       }
 
       // 检查任务配置问题
@@ -861,12 +861,12 @@ export function useModelConfig() {
         const version = await createModelConfigVersion(label)
         await loadConfigVersions()
         toast({
-          title: '副本已创建',
+          title: '分工方案已创建',
           description: `已保存为「${version.label}」`,
         })
       } catch (error) {
         toast({
-          title: '创建副本失败',
+          title: '创建分工方案失败',
           description: (error as Error).message,
           variant: 'destructive',
         })
@@ -896,12 +896,12 @@ export function useModelConfig() {
         })
         await loadConfig()
         toast({
-          title: '副本已切换',
-          description: '当前模型配置已更新，切换前配置已归档为未启用副本',
+          title: '分工方案已切换',
+          description: '切换前的分工方案已自动保存',
         })
       } catch (error) {
         toast({
-          title: '切换副本失败',
+          title: '切换分工方案失败',
           description: (error as Error).message,
           variant: 'destructive',
         })
@@ -927,12 +927,11 @@ export function useModelConfig() {
         await deleteModelConfigVersion(versionId)
         await loadConfigVersions()
         toast({
-          title: '副本已删除',
-          description: '未启用的模型配置副本已删除',
+          title: '分工方案已删除',
         })
       } catch (error) {
         toast({
-          title: '删除副本失败',
+          title: '删除分工方案失败',
           description: (error as Error).message,
           variant: 'destructive',
         })
@@ -1168,7 +1167,7 @@ export function useModelConfig() {
   )
 
   // 保存模型编辑
-  const handleSaveEdit = useCallback(async () => {
+  const handleSaveEdit = useCallback(async (newProvider?: APIProvider | null) => {
     if (!editingModel) return
 
     // 验证必填项
@@ -1193,6 +1192,10 @@ export function useModelConfig() {
     }
     if (!editingModel.model_identifier?.trim()) {
       errors.model_identifier = '请输入模型标识符'
+    }
+    if (newProvider && !newProvider.api_key.trim()) errors.api_provider = '请输入 API Key'
+    if (newProvider && apiProviders.some((p) => p.name.toLowerCase() === newProvider.name.toLowerCase())) {
+      errors.api_provider = '厂商名称已存在，请重新选择提供商'
     }
     const pricePeriodsError = validatePricePeriods(editingModel.price_periods)
     if (pricePeriodsError) errors.price_periods = pricePeriodsError
@@ -1240,7 +1243,9 @@ export function useModelConfig() {
     try {
       setSaving(true)
       // 模型名称与任务引用必须在同一次写入中保存，避免热重载读到不一致的中间状态。
-      const persistResult = await persistModelConfigDraft(newModels, newTaskConfig, apiProviders)
+      const nextProviders = newProvider ? [...apiProviders, cleanProviderData(newProvider)] : apiProviders
+      const persistResult = await persistModelConfigDraft(newModels, newTaskConfig, nextProviders)
+      if (newProvider && persistResult.applyProviders) syncProviderState(nextProviders)
       if (persistResult.applyModels) {
         setModels(newModels)
         setModelNames(newModels.map((model) => model.name))
@@ -1275,6 +1280,7 @@ export function useModelConfig() {
     editingModel,
     models,
     persistModelConfigDraft,
+    syncProviderState,
     taskConfig,
     toast,
   ])

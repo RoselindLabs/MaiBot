@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from src.maisaka.runtime import MaisakaHeartFlowChatting
 
 logger = get_logger("maisaka_turn_scheduler")
+MAX_INTERNAL_ROUNDS = 16
 
 
 class MessageTurnScheduler(ABC):
@@ -28,9 +29,18 @@ class MessageTurnScheduler(ABC):
         """新消息登记后更新场景定时判定。"""
         return None
 
-    def start_planner_turn(self) -> None:
-        """任意来源开启 Planner 时更新场景状态。"""
-        return None
+    @property
+    def allows_timed_wakeup(self) -> bool:
+        """是否允许定时器在没有新消息时唤醒 Planner。"""
+        return True
+
+    def accept_wait_timeout(self) -> bool:
+        """有效的 wait 到期后，决定是否重新进入 Planner。"""
+        return True
+
+    def start_planner_turn(self, logical_turn_id: str) -> int:
+        """开启 Planner，返回当前逻辑回合已经完成的轮数。"""
+        return 0
 
     def record_planner_run(self) -> None:
         """记录一次有效 Planner 运行，更新场景的查看频率。"""
@@ -38,6 +48,10 @@ class MessageTurnScheduler(ABC):
 
     def finish_planner_turn(self) -> None:
         """内部循环退出后安排场景检查。"""
+        return None
+
+    def end_logical_turn(self) -> None:
+        """结束当前逻辑回合，释放该回合的调度状态。"""
         return None
 
     def consume_silence_trigger(self) -> bool:

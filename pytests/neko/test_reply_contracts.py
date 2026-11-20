@@ -9,8 +9,24 @@ import asyncio
 import pytest
 
 from src.chat.replyer import maisaka_generator_base as generator_module
+from src.common.data_models.message_component_data_model import (
+    AtComponent,
+    MessageSequence,
+    TextComponent,
+    VoiceComponent,
+)
 from src.config.config import global_config
 from src.maisaka.builtin_tool import reply
+
+
+def test_transcribed_voice_does_not_take_the_first_quotable_body():
+    clip = VoiceComponent(binary_hash="synthetic", content="朗读内容")
+    voice = MessageSequence([clip])
+    at = MessageSequence([AtComponent(target_user_id="synthetic")])
+    text = MessageSequence([TextComponent("文字正文")])
+    assert reply._first_reply_body([at, voice, text]) == (2, "文字正文")
+    assert reply._first_reply_body([at, voice]) == (1, "朗读内容")
+    assert reply._first_reply_body([MessageSequence([*at.components, clip]), text]) == (0, "朗读内容")
 
 
 @pytest.mark.parametrize("outcome", ["success", "failure", "cancelled"])

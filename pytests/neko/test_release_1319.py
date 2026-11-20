@@ -6,6 +6,7 @@ import tomlkit
 import pytest
 
 from src.config.config import CONFIG_VERSION, Config, load_config_from_file, write_config_to_file
+from src.webui.config_schema import ConfigSchemaGenerator
 
 
 def test_1319_config_copy_keeps_existing_values_and_only_adds_empty_profiles(tmp_path):
@@ -15,8 +16,8 @@ def test_1319_config_copy_keeps_existing_values_and_only_adds_empty_profiles(tmp
     config.personality.reply_style = "synthetic unchanged reply"
     config.chat.reply_style.group_chat_prompt = "synthetic group prompt"
     config.chat.reply_style.private_chat_prompts = "synthetic private prompt"
-    config.chat.max_context_size = 37
-    config.chat.max_private_context_size = 61
+    config.chat.max_context_size = 24
+    config.chat.max_private_context_size = 360
     config.experimental.focus_mode = True
     config.experimental.focus_on_private = False
     config.experimental.group_attention_drift.enabled = False
@@ -31,13 +32,19 @@ def test_1319_config_copy_keeps_existing_values_and_only_adds_empty_profiles(tmp
     path.write_text(tomlkit.dumps(old), encoding="utf-8")
     original = deepcopy(old)
     migrated, updated = load_config_from_file(Config, path, CONFIG_VERSION)
-    assert updated and CONFIG_VERSION == "8.16.37"
+    assert updated and CONFIG_VERSION == "8.16.38"
     expected = deepcopy(original)
     expected["inner"]["version"] = CONFIG_VERSION
     expected["personality"].update(profiles=[], selected_profile="")
     assert tomlkit.parse(path.read_text(encoding="utf-8")).unwrap() == expected
-    assert migrated.chat.max_context_size == 37
-    assert migrated.chat.max_private_context_size == 61
+    assert migrated.chat.max_context_size == 24
+    assert migrated.chat.max_private_context_size == 360
+    fields = {
+        f["name"]: f for f in ConfigSchemaGenerator.generate_schema(type(migrated.chat), include_nested=False)["fields"]
+    }
+    for name in ("max_context_size", "max_private_context_size"):
+        assert fields[name]["x-widget"] == "input"
+        assert not {"minValue", "maxValue"}.intersection(fields[name])
     assert not migrated.desktop_pet.enabled
     assert not migrated.desktop_pet.chat_tools_enabled
     _, again_updated = load_config_from_file(Config, path, CONFIG_VERSION)

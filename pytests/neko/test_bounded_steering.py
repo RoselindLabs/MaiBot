@@ -38,7 +38,7 @@ class LoopHarness:
             _chat_history=[],
             message_cache=[],
             _max_context_size=100,
-            _message_turn_scheduler=Mock(),
+            _message_turn_scheduler=Mock(start_planner_turn=Mock(return_value=0)),
             _max_internal_rounds=3,
             _cycle_counter=1,
             _consecutive_wait_count=0,

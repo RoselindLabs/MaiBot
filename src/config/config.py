@@ -76,9 +76,9 @@ MODEL_CONFIG_PATH: Path = (CONFIG_DIR / "model_config.toml").resolve().absolute(
 LEGACY_ENV_PATH: Path = (PROJECT_ROOT / ".env").resolve().absolute()
 MMC_VERSION: str = read_project_version(PROJECT_ROOT)
 # NEKO: N20 schedule-opt-in — advance the fork schema separately from the official template.
-CONFIG_VERSION: str = "8.16.37"
-# NEKO: N08 gemini-fallback — migrate existing task-local fallback references without a version collision.
-MODEL_CONFIG_VERSION: str = "1.17.28"
+CONFIG_VERSION: str = "8.16.38"
+# NEKO: N08 gemini-fallback — migrate the official 1.17.30 template as well as older fork tasks.
+MODEL_CONFIG_VERSION: str = "1.17.31"
 
 logger = get_logger("config")
 

@@ -8,7 +8,7 @@
  */
 import { ApiError, backendApi, statsApi } from '@/lib/http'
 import { assertGeminiFallbacks } from '@/routes/config/model/geminiFallback'
-import type { TaskConfig } from '@/routes/config/model/types'
+import type { ModelInfo, TaskConfig } from '@/routes/config/model/types'
 
 // ============ 类型定义 ============
 
@@ -28,7 +28,7 @@ export interface PackProvider {
  * 模型配置
  */
 export interface PackModel {
-  model_type?: 'llm' | 'embedding' | 'image_embedding'
+  model_type?: ModelInfo['model_type']
   model_identifier: string
   name: string
   api_provider: string
@@ -55,8 +55,10 @@ export interface PackTaskConfigs {
   replyer?: PackTaskConfig
   learner?: PackTaskConfig
   planner?: PackTaskConfig
+  emoji?: PackTaskConfig
   vlm?: PackTaskConfig
   voice?: PackTaskConfig
+  tts?: PackTaskConfig
   embedding?: PackTaskConfig
   lpmm_entity_extract?: PackTaskConfig
   lpmm_rdf_build?: PackTaskConfig

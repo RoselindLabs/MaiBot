@@ -11,7 +11,7 @@ from src.chat.message_receive.message import SessionMessage
 from src.chat.replyer.replyer_manager import replyer_manager
 from src.chat.utils.utils import get_bot_account, is_bot_self
 from src.cli.maisaka_cli_sender import CLI_PLATFORM_NAME, render_cli_message
-from src.common.data_models.message_component_data_model import TextComponent, VoiceComponent
+from src.common.data_models.message_component_data_model import MessageSequence, TextComponent, VoiceComponent
 from src.common.data_models.reply_generation_data_models import ReplyGenerationResult, build_reply_monitor_detail
 from src.common.llm_json import parse_llm_json
 from src.common.logger import get_logger
@@ -38,6 +38,7 @@ from src.plugin_runtime.host.reply_extensions import (
 )
 from src.services import send_service
 from .context import BuiltinToolRuntimeContext, PostProcessedReplyMessage, ResolvedReplyAttachments
+from .reply_voice import attach_reply_voice, voice_attachment_schema
 from .wait import resolve_wait_seconds
 
 if TYPE_CHECKING:
@@ -147,7 +148,7 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
         "wait_seconds": {
             "type": "integer",
             "minimum": 0,
-            "description": "可选。after_reply=wait 时最多等待的秒数，到期后即使没有新消息也会继续思考。不填表示结束本轮。",
+            "description": "可选。after_reply=wait 时最多等待的秒数，普通群聊到期时按当前查看概率判断是否继续思考。不填表示结束本轮。",
         },
         "msg_id": {
             "type": "string",
@@ -260,11 +261,17 @@ def get_tool_spec(context: Optional[ToolAvailabilityContext] = None) -> ToolSpec
     if context is not None and context.is_group_chat is not None and get_scene(context.is_group_chat).allow_reply_at:
         properties["attach_at"] = {
             "type": "array",
-            "description": "可选。随本次回复 at 一个或多个目标消息的发送者，填写目标 msg_id。",
-            "items": {"type": "string"},
+            "description": "可选。随回复 at 一人或多人。字符串填写消息 ID；使用日程记录的平台用户 ID 时填写 user_id 对象。",
+            "items": {"anyOf": [
+                {"type": "string"},
+                {"type": "object", "properties": {"user_id": {"type": "string", "minLength": 1}},
+                 "required": ["user_id"], "additionalProperties": False},
+            ]},
             "default": [],
         }
 
+    if voice_schema := voice_attachment_schema(context.platform if context else None):
+        properties["attach_voice"] = voice_schema
     extension_schema = build_reply_extensions_schema(context)
     if extension_schema is not None:
         properties["plugin_options"] = extension_schema
@@ -363,6 +370,28 @@ def _build_send_result(
         "message_id": message_id,
         "speech_text": speech_text,
     }
+
+
+def _is_voice_only(sequence: MessageSequence) -> bool:
+    """NEKO: N02 reply-receipt — 转录文字不是可引用的文字分段。"""
+    return bool(sequence.components) and all(isinstance(part, VoiceComponent) for part in sequence.components)
+
+
+def _first_reply_body(sequences: List[MessageSequence]) -> Tuple[int, str]:
+    """NEKO: N02 reply-receipt — 带转录的纯语音不占用后续正文的目标引用。"""
+    first_voice = None
+    for index, sequence in enumerate(sequences):
+        body = "".join(
+            part.text if isinstance(part, TextComponent) else part.content
+            for part in sequence.components if isinstance(part, (TextComponent, VoiceComponent))
+        )
+        if body.strip():
+            if not _is_voice_only(sequence):
+                return index, body
+            if first_voice is None:
+                first_voice = (index, body)
+    # 只有语音正文时仍识别其位置，避免将引用移到开头的图片等独立附件。
+    return first_voice if first_voice is not None else (0, "")
 
 
 def _resolve_segment_reply_context(
@@ -623,6 +652,8 @@ async def _execute_reply(
                 target_message_id = target_message.message_id
                 invocation_arguments["msg_id"] = target_message_id
             invocation_arguments["plugin_options"] = supplement.plan.plugin_options
+            if supplement.plan.attach_voice is not None:
+                invocation_arguments["attach_voice"] = supplement.plan.attach_voice
             preparation_metadata["reply_supplement"] = {**supplement.metadata, "status": "completed"}
             extension_execution.reply_message_id = target_message_id
         return supplement.target_message if supplement is not None else target_message
@@ -815,6 +846,19 @@ async def _execute_reply(
                 "reply", f"插件回复扩展处理失败：{exc}",
                 metadata=_build_monitor_metadata(reply_result, extension_execution.reply_id),
             )
+    voice_mode = invocation_arguments.get("attach_voice")
+    if voice_mode is not None:
+        try:
+            schema = voice_attachment_schema(context.platform)
+            if schema is None or voice_mode not in schema["enum"]:
+                raise ValueError("当前回复不可使用指定的语音附件模式")
+            reply_items = await attach_reply_voice(reply_items, reply_text, voice_mode)
+        except Exception as exc:
+            logger.exception(f"{tool_ctx.runtime.log_prefix} 生成语音附件失败: {exc}")
+            return tool_ctx.build_failure_result(
+                "reply", f"生成语音附件失败：{exc}",
+                metadata=_build_monitor_metadata(reply_result, extension_execution.reply_id),
+            )
     reply_sequences = [item.sequence for item in reply_items]
     reply_segments = [build_visible_text_from_sequence(sequence) for sequence in reply_sequences]
     combined_reply_text = "".join(reply_segments)
@@ -825,14 +869,7 @@ async def _execute_reply(
     if extension_execution.targets:
         reply_metadata["reply_extensions"] = list(extension_execution.parameters)
     # 两条链路均按首段正文与当前聊天情境抽样一次；补充器只选择候选引用目标。
-    first_reply_index = next(
-        (index for index, sequence in enumerate(reply_sequences)
-         if any(isinstance(c, TextComponent) and c.text.strip() for c in sequence.components)), 0,
-    )
-    first_text = (
-        "".join(c.text for c in reply_sequences[first_reply_index].components if isinstance(c, TextComponent))
-        if reply_sequences else ""
-    )
+    first_reply_index, first_text = _first_reply_body(reply_sequences)
     set_quote, quote_probability = await _resolve_reply_quote(tool_ctx, first_text, target_message, bot_user_id)
     if supplement is not None:
         reply_metadata["reply_supplement"] = {**supplement.metadata, "status": "completed"}
@@ -877,9 +914,7 @@ async def _execute_reply(
                 # NEKO: N02 reply-receipt — 仅纯语音关闭引用，文字与混合消息保持原规则。
                 # quote_previous 只控制后续分段；纯语音首段也不能附加目标引用。
                 # 在最终逐段发送处限制，兼容旧抽样与补充器选定引用，并保留文字引用链。
-                if reply_sequence.components and all(
-                    isinstance(component, VoiceComponent) for component in reply_sequence.components
-                ):
+                if _is_voice_only(reply_sequence):
                     segment_set_quote = False
                 sent_message = await send_service._send_to_target_with_message(
                     message_sequence=reply_sequence,
